@@ -50,7 +50,38 @@ export async function getSession(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME_EXPORT)?.value;
   if (!token) return null;
-  return verifySession(token);
+  const user = await verifySession(token);
+  if (!user) return null;
+  await ensureUserRow(user);
+  return user;
+}
+
+/**
+ * Sentinel password hash used for user rows healed from a session.
+ * It can never match a real login — see ensureUserRow().
+ */
+export const SENTINEL_PASSWORD_HASH = '!healed-session-no-password!';
+
+/**
+ * Ensure the session user has a row in the users table.
+ *
+ * After the SQLite → Postgres migration, sessions created under the old
+ * SQLite DB still verify (the JWT is self-contained and signed) but reference
+ * a user_id that has no matching row in Postgres, causing FK violations on
+ * writes (e.g. subjects_user_id_fkey). This heals the row so writes succeed.
+ *
+ * Note: a healed row gets a sentinel password hash, so password login won't
+ * work for it — the user should sign up again if their session expires.
+ */
+async function ensureUserRow(user: SessionUser): Promise<void> {
+  // Atomic upsert: no-op when the row already exists, so no SELECT or race
+  // window. Best-effort — execute() swallows errors (e.g. email collision
+  // with a different Postgres user), and the FK error will surface loudly
+  // on the write that depends on this row.
+  await execute(
+    'INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (id) DO NOTHING',
+    [user.id, user.email, user.name ?? null, SENTINEL_PASSWORD_HASH]
+  );
 }
 
 /**

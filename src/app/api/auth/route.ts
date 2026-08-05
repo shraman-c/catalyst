@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createUser, findUserByEmail, hashPassword, createSession, COOKIE_NAME_EXPORT } from '@/lib/auth';
+import { createUser, findUserByEmail, hashPassword, createSession, COOKIE_NAME_EXPORT, SENTINEL_PASSWORD_HASH } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   const { action, email, password, name } = await request.json();
@@ -28,6 +28,14 @@ export async function POST(request: NextRequest) {
 
   if (action === 'login') {
     const dbUser = await findUserByEmail(email);
+    // A row healed from a legacy (SQLite-era) session has a sentinel hash and
+    // no known password. Tell the user instead of a confusing 401.
+    if (dbUser && dbUser.password_hash === SENTINEL_PASSWORD_HASH) {
+      return NextResponse.json(
+        { error: 'This account was created before the database migration and has no password. Please sign up with a new email, or clear your browser cookies if you had an active session.' },
+        { status: 401 }
+      );
+    }
     const hashedInput = await hashPassword(password);
     if (!dbUser || dbUser.password_hash !== hashedInput) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
