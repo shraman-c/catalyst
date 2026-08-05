@@ -1,7 +1,8 @@
-import { queryAll, execute, generateId } from '../db';
+import { queryAllStrict, executeStrict } from '../db';
 import { chunkNote, extractConcepts } from './extract';
-import { generateCards } from './cards';
-import { mergeConceptsIntoGraph, findSimilarConcept, stringSimilarity } from './graph';
+import { generateCardsFromConcepts, persistCards } from './cards';
+import { mergeConceptsIntoGraph, stringSimilarity } from './graph';
+import { generateEmbeddings, querySimilarVectorsBatched, graphNamespace } from './vector';
 import type { PipelineResult, GraphNode } from '../types';
 import type { ExtractedConcept } from './extract';
 
@@ -9,9 +10,9 @@ import type { ExtractedConcept } from './extract';
  * Main AI processing pipeline orchestrator.
  * Per TRD.md §2.3:
  * 1. Chunk note into semantically coherent pieces
- * 2. Extract concepts from each chunk
+ * 2. Extract concepts + generate flashcards from each chunk (one LLM call)
  * 3. Merge into existing graph (dedup/merge existing nodes)
- * 4. Generate candidate flashcards (dedup + persist handled by generateCards)
+ * 4. Persist flashcards (dedup handled inside persistCards)
  * 5. Persist graph deltas
  *
  * Idempotent: keyed by content hash. Re-running with same hash is a no-op.
@@ -37,7 +38,8 @@ export async function processNote(
   const chunks = chunkNote(content);
 
   // --- Get existing graph state for this subject ---
-  const existingNodes = await queryAll<GraphNode>(
+  // Strict read: an empty result caused by a DB error must not look like "no graph yet"
+  const existingNodes = await queryAllStrict<GraphNode>(
     'SELECT * FROM graph_nodes WHERE subject_id = $1',
     [subjectId]
   );
@@ -47,53 +49,93 @@ export async function processNote(
   const allMergedNodes: Array<{ existing_id: string; merged_name: string }> = [];
 
   // --- Process each chunk ---
+  let processedAnyChunk = false;
+  let firstChunkError: unknown = null;
+
   for (const chunk of chunks) {
     if (chunk.trim().length < 50) continue; // Skip trivially small chunks
 
-    // Step 2: Extract concepts from this chunk
+    try {
+      await processChunk(chunk);
+      processedAnyChunk = true;
+    } catch (err) {
+      // One bad chunk shouldn't discard the rest of the note (or earlier progress).
+      console.error('[Pipeline] chunk failed, continuing with remaining chunks:', err);
+      if (!firstChunkError) firstChunkError = err;
+    }
+  }
+
+  // If every chunk failed, surface the underlying cause so the user gets a real message.
+  if (!processedAnyChunk && firstChunkError) {
+    throw firstChunkError instanceof Error
+      ? firstChunkError
+      : new Error(String(firstChunkError));
+  }
+
+  // Chunk processing extracted into a helper for the per-chunk error boundary above
+  async function processChunk(chunk: string) {
+    // Step 2: Extract concepts AND generate flashcards from this chunk (one LLM call)
     const extraction = await extractConcepts(chunk);
     const extractedConcepts = extraction.concepts;
 
-    // Step 2b: Pre-filter concepts using vector similarity (Stage 4 optimization)
-    // This reduces LLM calls by automatically merging highly similar concepts
+    // Step 2b: Pre-filter concepts using string + vector similarity.
+    // Vector checks are BATCHED: one embed call for all concepts, then the
+    // queries run in parallel — not a sequential round trip per concept.
     const vectorMergedConcepts: Array<{ concept: ExtractedConcept; existingNode: GraphNode }> = [];
-    const conceptsForLLM: ExtractedConcept[] = [];
+    let conceptsForLLM: ExtractedConcept[] = [];
+    const knownNodes = [...existingNodes, ...allCreatedNodes];
 
     for (const concept of extractedConcepts) {
       // First check string similarity (fast, no API call)
       let foundSimilar = false;
-      for (const existing of [...existingNodes, ...allCreatedNodes]) {
+      for (const existing of knownNodes) {
         if (stringSimilarity(concept.name, existing.name) > 0.8) {
           vectorMergedConcepts.push({ concept, existingNode: existing });
           foundSimilar = true;
           break;
         }
       }
-
-      // If no string match, check vector similarity
-      if (!foundSimilar) {
-        try {
-          const similar = await findSimilarConcept(subjectId, concept);
-          if (similar && similar.similarity > 0.88) {
-            const existingNode = [...existingNodes, ...allCreatedNodes].find(n => n.id === similar.id);
-            if (existingNode) {
-              vectorMergedConcepts.push({ concept, existingNode });
-              foundSimilar = true;
-            }
-          }
-        } catch {
-          // Vector search failed, continue to LLM
-        }
-      }
-
       if (!foundSimilar) {
         conceptsForLLM.push(concept);
       }
     }
 
+    // Batched vector check for the concepts that didn't string-match.
+    // Skipped entirely when there are no existing nodes to merge against.
+    if (knownNodes.length > 0 && conceptsForLLM.length > 0) {
+      try {
+        const embeddings = await generateEmbeddings(
+          conceptsForLLM.map((c) => `${c.name}: ${c.definition}`),
+          'query'
+        );
+        const queryResults = await querySimilarVectorsBatched(
+          graphNamespace(subjectId),
+          embeddings,
+          1,
+          0.85
+        );
+        const stillNew: ExtractedConcept[] = [];
+        for (let i = 0; i < conceptsForLLM.length; i++) {
+          const similar = queryResults[i] && queryResults[i][0];
+          const existingNode = similar && similar.score > 0.88
+            ? knownNodes.find((n) => n.id === similar.id)
+            : undefined;
+          if (existingNode) {
+            vectorMergedConcepts.push({ concept: conceptsForLLM[i], existingNode });
+          } else {
+            stillNew.push(conceptsForLLM[i]);
+          }
+        }
+        conceptsForLLM = stillNew;
+      } catch (err) {
+        // Vector search failed, continue all remaining concepts to the LLM
+        console.warn('Batched vector pre-filter failed, continuing to LLM merge:', err);
+      }
+    }
+
     // Step 3: Process vector-merged concepts (automatic merge without LLM)
     for (const { concept, existingNode } of vectorMergedConcepts) {
-      await execute(
+      await executeStrict(
         'UPDATE graph_nodes SET reference_count = reference_count + 1, updated_at = NOW() WHERE id = $1',
         [existingNode.id]
       );
@@ -101,7 +143,7 @@ export async function processNote(
 
       // Link note to merged node
       try {
-        await execute(
+        await executeStrict(
           'INSERT INTO node_note_map (node_id, note_file_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
           [existingNode.id, noteFileId]
         );
@@ -138,13 +180,13 @@ export async function processNote(
       nodeNameToId[merged.merged_name.toLowerCase()] = merged.existing_id;
     }
 
-    // Step 4: Generate cards (handles dedup + persist internally)
-    const cardResult = await generateCards(
-      noteFileId,
-      subjectId,
-      extraction.concepts,
-      nodeNameToId
-    );
+    // Step 4: Persist flashcards. Cards come from the combined extraction call;
+    // fall back to a dedicated card-generation call only if it produced none.
+    let cards = extraction.cards;
+    if (cards.length === 0 && extractedConcepts.length > 0) {
+      cards = await generateCardsFromConcepts(extractedConcepts);
+    }
+    const cardResult = await persistCards(noteFileId, subjectId, cards, nodeNameToId);
 
     result.cards_created += cardResult.created;
     result.cards_deduplicated += cardResult.deduplicated;
@@ -152,7 +194,7 @@ export async function processNote(
     // Link note to any newly created nodes
     for (const node of graphDelta.nodes_created) {
       try {
-        await execute(
+        await executeStrict(
           'INSERT INTO node_note_map (node_id, note_file_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
           [node.id, noteFileId]
         );

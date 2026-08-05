@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
        (SELECT COUNT(*) FROM flashcards fc WHERE fc.note_file_id = nf.id AND fc.status != 'deleted') AS card_count,
        (SELECT COUNT(*) FROM node_note_map nnm WHERE nnm.note_file_id = nf.id) AS node_count
      FROM note_files nf
-     WHERE nf.subject_id = ?
+     WHERE nf.subject_id = ? AND nf.source != 'deleted'
      ORDER BY nf.updated_at DESC`,
     [subjectId]
   );

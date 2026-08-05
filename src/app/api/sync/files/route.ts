@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
 
   // Upsert note file
   let noteFileId: string;
+  const isNewFile = !existing;
+  const previousHash = existing?.content_hash ?? null;
   if (existing) {
     await execute(
       'UPDATE note_files SET content_hash = ?, source = \'watcher\', updated_at = datetime(\'now\') WHERE id = ?',
@@ -106,6 +108,17 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Sync] Pipeline error:', message);
+
+    // Roll back the note-file change so the watcher's next sync retries processing.
+    if (isNewFile) {
+      await execute('DELETE FROM note_files WHERE id = ?', [noteFileId]);
+    } else if (previousHash) {
+      await execute(
+        'UPDATE note_files SET content_hash = ?, updated_at = datetime(\'now\') WHERE id = ?',
+        [previousHash, noteFileId]
+      );
+    }
+
     return NextResponse.json(
       { error: 'AI_PROCESSING_FAILED', detail: message, note_file_id: noteFileId },
       { status: 500 }

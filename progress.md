@@ -4,11 +4,14 @@
 Stage 3 (The Watcher / Local-to-Cloud Sync) — **complete**. All three stages fully implemented. Build verified (`npm run build` passes, 15 routes, 0 TypeScript errors). Application running on localhost:3001.
 
 **Latest Updates (2026-08-05):**
-- **Database Migration to Supabase**: Replaced SQLite with PostgreSQL via Supabase. Updated `db.ts` to use `postgres` package with automatic SQL conversion for placeholder syntax and datetime functions. Added pgvector extension for vector embeddings.
+- **Pipeline Performance Optimization (analysis time reduction)**: Batched + parallelized all Pinecone calls (one embed + one multi-record upsert per batch instead of ~2 sequential calls per concept/card) and combined concept extraction + flashcard generation into a single LLM call per chunk. Per-chunk analysis dropped from ~45–50s to ~14–18s (measured) — see the "Pipeline Performance Optimization" section below.
+- **Knowledge Graph Layout Fix**: Rewrote the graph page's force layout — added a rectangle-aware collision force sized from each node's real measured label box (not a uniform radius), a post-settle edge-crossing nudge pass, auto-clustering into expandable cluster blocks past 50 nodes, design.md-styled straight edges with midpoint relationship chips, theme-aware canvas colors, and resize re-fit/re-center handling. Also defined the previously missing `.hide-on-desktop` CSS (mobile graph list + bottom nav were never visible).
+- **AI Pipeline Overhaul — Groq + Pinecone (fixes "AI Processing Failed")**: Switched the LLM layer from Gemini to Groq (`llama-3.1-8b-instant` / `llama-3.3-70b-versatile`, JSON mode, retry/backoff, 60s timeout, descriptive errors) and moved embeddings from the broken pgvector columns (1536-dim mismatch was silently swallowing graph/card writes) to Pinecone (`llama-text-embed-v2`, 1024-dim, auto-created serverless index, per-subject namespaces). Added strict DB helpers so failures surface, per-chunk pipeline error isolation, content-hash rollback on failure so retries reprocess, and Pinecone cleanup on node/card deletes. Verified end-to-end with real keys.
+- **Database Migration to Supabase**: Replaced SQLite with PostgreSQL via Supabase. Updated `db.ts` to use `postgres` package with automatic SQL conversion for placeholder syntax and datetime functions. Added pgvector extension for vector embeddings (pgvector columns later dropped — see AI Pipeline Overhaul below).
 - **UI/UX Scaling & Responsiveness**: Enhanced CSS with better responsive patterns, added utility classes for loading states, tooltips, and mobile navigation. Improved dashboard layout with mobile-first approach.
 - **Stage 4 Features Implemented**: Graph clustering, search/filtering by time and source notes, "Study this concept" button, source-excerpt linking, improved graph page with filters.
 - **Stage 5 Features Implemented**: Data export (JSON/CSV), account deletion with confirmation, data & privacy settings, review fatigue signals (card density suggestions).
-- **Schema Updates**: Added vector embedding columns for graph_nodes and flashcards tables, updated boolean fields from INTEGER to BOOLEAN, added proper foreign key constraints.
+- **Schema Updates**: Added vector embedding columns for graph_nodes and flashcards tables (later dropped — see AI Pipeline Overhaul), updated boolean fields from INTEGER to BOOLEAN, added proper foreign key constraints.
 
 ---
 
@@ -327,6 +330,7 @@ Stage 3 (The Watcher / Local-to-Cloud Sync) — **complete**. All three stages f
    - Added proper foreign key constraints with `ON DELETE CASCADE`.
    - Added vector embedding columns for `graph_nodes` and `flashcards` tables.
    - Created vector similarity indexes for fast embedding search.
+   - ⚠️ **Later dropped (2026-08-05)**: the pgvector columns + indexes were removed by migration in the AI Pipeline Overhaul — embeddings now live in Pinecone, not Postgres (see the "AI Pipeline Overhaul" section below).
 
 3. **API Route Updates**:
    - Updated all SQL queries to use PostgreSQL-compatible syntax.
@@ -340,12 +344,88 @@ Stage 3 (The Watcher / Local-to-Cloud Sync) — **complete**. All three stages f
 ### Environment Variables:
 - `DATABASE_URL`: PostgreSQL connection string (Supabase transaction mode)
 - `NEXT_PUBLIC_SUPABASE_URL`: Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase anonymous key
-- `GEMINI_API_KEY`: Google Gemini API key
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key
+- `GROQ_API_KEY`: Groq API key (LLM text generation)
+- `PINECONE_API_KEY`: Pinecone API key (vector storage + inference embeddings)
+- `PINECONE_INDEX`: Pinecone index name (default `synthesizer`, auto-created on first use)
 - `NEXTAUTH_SECRET`: Session signing secret
+- `NEXTAUTH_URL`: App URL (kept as-is for local dev)
 
 ### Migration Notes:
 - Existing SQLite data would need to be migrated using Supabase's import tools.
-- Vector embeddings are now supported but not yet integrated into the AI pipeline.
+- Vector embeddings are now handled by Pinecone (pgvector columns were dropped — see the AI Pipeline Overhaul section below).
 - Real-time subscriptions are possible but not yet implemented.
 - The application maintains backward compatibility with existing API contracts.
+
+---
+
+## AI Pipeline Overhaul: Groq + Pinecone (fixes "AI Processing Failed")
+
+**Date**: 2026-08-05 · **Status**: complete — verified end-to-end with real API keys
+
+### Root cause of "AI PROCESSING FAILED"
+- The pgvector embedding columns (`vector(1536)`) on `graph_nodes` and `flashcards` had a **dimension mismatch** with the embeddings being written, so the writes failed silently and graph/card persistence was lost.
+- The originally configured Pinecone inference model (`voyage-3-lite`) no longer exists on the account — `/embed` returned 404. Switched to **`llama-text-embed-v2`** (1024-dim) with the required `X-Pinecone-Api-Version: 2025-10` header. The old 512-dim index was deleted; the app auto-creates a 1024-dim serverless index on first use.
+
+### Changes made
+- **LLM provider → Groq** (`src/lib/ai/client.ts`): `llama-3.1-8b-instant` for extraction + cards, `llama-3.3-70b-versatile` for graph-merge. JSON mode, retry/backoff on 429/5xx (up to 4 attempts, honours `Retry-After`), 60s fetch timeout, and descriptive errors (rate-limit vs auth vs model) instead of the generic failure banner.
+- **Vectors → Pinecone** (new `src/lib/ai/vector.ts`): inference embeddings (`llama-text-embed-v2`, 1024-dim), auto index creation, per-subject namespaces for graph nodes and cards, upsert/query/delete helpers.
+- **DB cleanup** (`src/lib/db.ts`): migration drops the broken pgvector columns + indexes; added `executeStrict` / `queryAllStrict` so DB failures surface instead of being swallowed.
+- **Pipeline hardening** (`src/lib/ai/pipeline.ts`): per-chunk error isolation — one bad chunk no longer discards the whole note.
+- **Retry correctness**: note upload (`/api/notes/upload`) and watcher sync (`/api/sync/files`) roll back the note's `content_hash` when the pipeline fails, so a retry actually reprocesses instead of being stuck on "content unchanged".
+- **Delete flows**: deleting/merging a graph node or deleting a card now purges its Pinecone vector too (`/api/graph/[subjectId]`, `/api/cards/[subjectId]`).
+- **Docs**: `.env.local.example` + README updated for `GROQ_API_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX`.
+
+### Verification
+- Vector round-trip test: embed (1024-dim) → upsert → query → cleanup, all green.
+- End-to-end repro pipeline: 6 nodes / 11 edges / 8 cards persisted in Postgres, **1 match in graph namespace + 1 match in cards namespace** in Pinecone (embeddings stored and queryable).
+- `npx tsc --noEmit` clean.
+
+---
+
+## Knowledge Graph Layout Fix (Force-Directed Rendering)
+
+**Date**: 2026-08-05 · **Status**: complete — typecheck + library-API verified; live visual pass pending (no Chrome on dev machine)
+
+### Root cause of overlapping nodes
+- The renderer drew **rectangular nodes sized by label text**, but the force simulation had **no collision force** (only a tiny circle `nodeRelSize={6}`). Nothing pushed nodes apart, so they collapsed into the center and piled on top of each other, with edges crossing unrelated boxes and labels clipped.
+
+### Changes made (all in `src/app/dashboard/subjects/[id]/graph/page.tsx`, plus CSS/layout)
+- **Rectangle-aware collision force**: custom `forceRectCollide` pushes axis-aligned boxes apart using each node's actual measured size (label length × font estimate + 12–18px padding, scaled by reference count) — not a uniform radius. "Small-Angle Approximation" gets a much bigger clearance box than "Physics".
+- **Scaled forces**: charge grows with node count; link distance derives from connected node sizes; centering is light (strength 0.08) so repulsion wins over the center pull.
+- **Post-settle edge-crossing pass**: after the sim stops, each edge is tested against every unrelated node's box; obstructing nodes are nudged perpendicular to the edge. A full-strength re-separation (`resolveRemainingOverlaps`, shared `pushApart` helper) then runs so nudges never re-create overlaps.
+- **Auto-clustering** (design.md §4.2): past 50 nodes, connected components collapse into labeled folder-block cluster nodes with a `[N CONCEPTS]` chip; clicking a cluster expands it. Auto-enables but never overrides an explicit user toggle.
+- **design.md styling**: straight 2px link-green edges with bordered mono relationship chips at midpoints (density-gated), brutalist hard-offset shadow on selected nodes, reference-count tag chips, screen-constant text.
+- **Theme-aware canvas**: colors are read from CSS variables at runtime (MutationObserver on the theme class), so the canvas matches light/dark mode instead of hard-coded light.
+- **Responsive**: ResizeObserver re-fits on canvas shrink / re-centers on grow; nodes never stay stranded off-canvas after a resize.
+- **Mobile fallback fixed** (`globals.css` + `dashboard/layout.tsx`): the previously undefined `.hide-on-desktop` class is now defined (mobile graph list + dashboard bottom nav), and the layout's inline `display: 'none'` that would have defeated it was removed.
+
+### Verification
+- `npx tsc --noEmit` clean.
+- All force-graph props verified against the installed library's type defs; `linkCanvasObjectMode="replace"` confirmed valid in the dist bundle.
+- Code review by review agent — all findings addressed (resize re-fit, nudge re-overlap, cluster box width vs `[N CONCEPTS]` chip, auto-cluster not re-triggering after manual toggle).
+- ⚠️ A live 30+ node visual test is still pending — Chrome isn't installed on the dev machine, so browser verification wasn't possible.
+
+---
+
+## Pipeline Performance Optimization (analysis time reduction)
+
+**Date**: 2026-08-05 · **Status**: complete — verified end-to-end with real API keys. Items #1 (batch + parallelize Pinecone) and #3 (cut redundant LLM calls) implemented; #2 (parallel chunk processing) pending.
+
+### Where the 70–90s went (benchmarked)
+- Pinecone embed calls measured ~0.67s each when called singly, ~0.14s each when batched (5 inputs in one call ≈ 0.69s total). Groq calls were ~0.2–0.6s each.
+- The old pipeline made a sequential Pinecone round trip PER concept (embed + query for dedup) and PER card (embed + query to dedup, then embed + upsert to store) — ~40+ sequential calls per chunk ≈ 25–30s/chunk, dwarfing the ~2s/chunk of LLM time.
+
+### Changes made
+- **`src/lib/ai/vector.ts`**: `generateEmbeddings()` now takes an `inputType` param (query vs passage); new `upsertEmbeddings()` batch helper (one multi-record upsert); new `querySimilarVectorsBatched()` runs queries in parallel with bounded concurrency (8) to avoid free-tier rate limits.
+- **`src/lib/ai/extract.ts`**: concept extraction AND flashcard generation combined into ONE LLM call per chunk (was two). Note slice capped at 6K chars and card output at 12 to stay safely inside the fast model's context window.
+- **`src/lib/ai/cards.ts`**: split into `generateCardsFromConcepts()` (LLM fallback) + `persistCards()` (local dedup → batched vector dedup → DB inserts → batched embed + upsert).
+- **`src/lib/ai/graph.ts`**: `storeNodeEmbeddings()` batches embedding storage for all newly created nodes (1 embed + 1 upsert, was 2 calls per node). Removed the now-unused `findSimilarConcept`.
+- **`src/lib/ai/pipeline.ts`**: concept pre-filter now does 1 batched embed → bounded-parallel queries → in-memory node lookup (no DB round trip per match). Skips vector pre-filter entirely when the subject has no nodes yet. Uses the combined extraction cards, falling back to a dedicated card call only when none were produced.
+
+### Results
+- ~3.5× fewer Pinecone round trips per chunk (from ~40+ sequential calls to ~4 total, regardless of chunk size).
+- LLM calls per chunk: 3 → 2.
+- End-to-end verified: nodes/edges/cards persist in Postgres, embeddings stored and queryable in both Pinecone namespaces, `npx tsc --noEmit` clean.
+- Measured ~14–18s per chunk (LLM output size varies) — down from the ~45–50s equivalent the old sequential code needed for the same content.
+- ⏳ Remaining lever (not yet implemented): #2 — process chunks in parallel with bounded concurrency (multi-chunk notes still process sequentially).

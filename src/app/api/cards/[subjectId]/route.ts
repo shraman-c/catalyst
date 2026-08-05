@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne, execute, generateId } from '@/lib/db';
+import { deleteEmbedding, cardsNamespace } from '@/lib/ai/vector';
 import type { InValue } from '@libsql/client';
 import type { Flashcard, Subject } from '@/lib/types';
 
@@ -116,6 +117,8 @@ export async function PATCH(
       'UPDATE flashcards SET status = "deleted", updated_at = datetime("now") WHERE id = ? AND subject_id = ?',
       [card_id, params.subjectId]
     );
+    // Remove the card's embedding so it can't suppress future (legitimately new) cards in dedup
+    await deleteEmbedding(cardsNamespace(params.subjectId), card_id);
   }
 
   if (action === 'review') {

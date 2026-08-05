@@ -38,8 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </nav>
 
       {/* Mobile navigation (shown only on small screens) */}
-      <div className="hide-on-desktop" style={{ 
-        display: 'none',
+      <div className="hide-on-desktop mobile-nav" style={{ 
         position: 'fixed',
         bottom: 0,
         left: 0,

@@ -106,7 +106,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="page-container" style={{ maxWidth: '700px' }}>
+    <div className="page-container" style={{ maxWidth: '800px', margin: '0 auto' }}>
 
       {/* Breadcrumb */}
       <div className="breadcrumb">

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { marked } from 'marked';
 
 interface NoteDetail {
   note: { id: string; filename: string; source: string; updated_at: string };
@@ -19,7 +20,9 @@ export default function NoteDetailPage() {
 
   const [data, setData] = useState<NoteDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'content' | 'concepts' | 'cards'>('content');
+  const [activeTab, setActiveTab] = useState<'rendered' | 'raw' | 'concepts' | 'cards'>('rendered');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchNote = useCallback(async () => {
     const res = await fetch(`/api/notes/${noteId}`);
@@ -29,6 +32,22 @@ export default function NoteDetailPage() {
   }, [noteId, router]);
 
   useEffect(() => { fetchNote(); }, [fetchNote]);
+
+  async function handleDeleteNote() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/delete?type=notes&id=${noteId}`, { method: 'DELETE' });
+      if (res.ok) {
+        router.push(`/dashboard/subjects/${subjectId}/notes`);
+        return;
+      }
+      console.error('Delete failed:', res.status);
+    } catch (err) {
+      console.error('Delete note failed:', err);
+    }
+    setDeleting(false);
+    setConfirmDelete(false);
+  }
 
   return (
     <div style={{ padding: '32px 40px' }}>
@@ -51,7 +70,7 @@ export default function NoteDetailPage() {
       ) : (
         <>
           {/* Note header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', gap: '16px', flexWrap: 'wrap' }}>
             <div>
               <h1 className="text-display-md">{data.note.filename}</h1>
               <div className="flex gap-2" style={{ marginTop: '8px' }}>
@@ -61,12 +80,37 @@ export default function NoteDetailPage() {
                 <span className="mono-tag">{data.cards.length} CARDS</span>
               </div>
             </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+              {confirmDelete ? (
+                <button
+                  className="btn btn-destructive"
+                  onClick={handleDeleteNote}
+                  disabled={deleting}
+                  id="note-delete-confirm"
+                >
+                  {deleting ? 'DELETING...' : 'CONFIRM DELETE?'}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setConfirmDelete(true);
+                    window.setTimeout(() => setConfirmDelete(false), 5000);
+                  }}
+                  style={{ color: 'var(--alert)' }}
+                  id="note-delete-btn"
+                >
+                  DELETE NOTE
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Tab bar */}
           <div style={{ display: 'flex', border: '3px solid var(--ink)', marginBottom: '20px', width: 'fit-content' }}>
             {[
-              { key: 'content', label: 'RAW NOTE' },
+              { key: 'rendered', label: 'RENDERED' },
+              { key: 'raw', label: 'RAW' },
               { key: 'concepts', label: `CONCEPTS (${data.concepts.length})` },
               { key: 'cards', label: `CARDS (${data.cards.length})` },
             ].map(({ key, label }) => (
@@ -90,10 +134,22 @@ export default function NoteDetailPage() {
           </div>
 
           {/* Tab content */}
-          {activeTab === 'content' && (
+          {activeTab === 'rendered' && (
+            <div className="bento-tile" style={{ backgroundColor: 'var(--surface)' }}>
+              {data.content ? (
+                <div
+                  className="markdown-content"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(data.content) }}
+                />
+              ) : (
+                <div className="text-body-sm" style={{ opacity: 0.6 }}>No content available.</div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'raw' && (
             <div className="bento-tile" style={{ backgroundColor: 'var(--surface)' }}>
               <div
-                className="markdown-content"
                 style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowX: 'auto' }}
               >
                 {data.content || 'No content available.'}
@@ -154,4 +210,31 @@ export default function NoteDetailPage() {
       )}
     </div>
   );
+}
+
+const UNSAFE_PROTOCOL = /^(javascript|vbscript|data|file):/i;
+
+function renderMarkdown(content: string): string {
+  // Escape raw HTML so notes can't inject markup (`>` is kept so blockquote syntax
+  // still parses; `<` alone can't open a tag). Unsafe link/image protocols are
+  // dropped in the renderer overrides below (marked v12 no longer strips them).
+  const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return marked.parse(escaped, {
+    gfm: true,
+    breaks: true,
+    renderer: {
+      link(href: string, title: string | null, text: string) {
+        if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
+        const safeHref = href.replace(/"/g, '&quot;');
+        const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+        return `<a href="${safeHref}"${safeTitle}>${text}</a>`;
+      },
+      image(href: string, title: string | null, text: string) {
+        if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
+        const safeSrc = href.replace(/"/g, '&quot;');
+        const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+        return `<img src="${safeSrc}" alt="${text.replace(/"/g, '&quot;')}"${safeTitle}>`;
+      },
+    },
+  }) as string;
 }

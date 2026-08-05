@@ -1,67 +1,130 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+/**
+ * AI client — Groq (OpenAI-compatible) for all LLM text generation.
+ *
+ * Per TRD.md §3 (tiered model strategy):
+ * - Fast/cheap model for extraction + card generation
+ * - Stronger model for graph merge reasoning (higher ambiguity)
+ *
+ * Groq's REST API is OpenAI-compatible:
+ *   POST https://api.groq.com/openai/v1/chat/completions
+ */
 
-// Tiered model strategy per TRD.md §3
-// Fast/cheap model for extraction tasks
-const FAST_MODEL = 'gemini-2.0-flash';
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+
+// Fast/cheap model for extraction + card generation
+const FAST_MODEL = 'llama-3.1-8b-instant';
 // Stronger model for graph merge reasoning (higher ambiguity)
-const STRONG_MODEL = 'gemini-2.0-pro';
-// Embedding model for vector similarity
-const EMBEDDING_MODEL = 'text-embedding-004';
+const STRONG_MODEL = 'llama-3.3-70b-versatile';
 
-let _genai: GoogleGenerativeAI | null = null;
-
-function getGenAI(): GoogleGenerativeAI {
-  if (_genai) return _genai;
-  const apiKey = process.env.GEMINI_API_KEY;
+function getGroqApiKey(): string {
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     throw new Error(
-      'GEMINI_API_KEY environment variable is not set. ' +
-      'Copy .env.example to .env.local and add your Gemini API key from https://aistudio.google.com/app/apikey'
+      'GROQ_API_KEY environment variable is not set. ' +
+      'Create a free key at https://console.groq.com/keys and add it to .env.local'
     );
   }
-  _genai = new GoogleGenerativeAI(apiKey);
-  return _genai;
+  return apiKey;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface GroqGenerateResult {
+  response: { text: () => string };
+}
+
+/**
+ * Minimal OpenAI-compatible model adapter so callers keep the same
+ * `model.generateContent(prompt)` / `result.response.text()` interface.
+ */
+class GroqModel {
+  constructor(private model: string) {}
+
+  async generateContent(prompt: string): Promise<GroqGenerateResult> {
+    const content = await chatCompletion(this.model, prompt);
+    return { response: { text: () => content } };
+  }
+}
+
+async function chatCompletion(model: string, prompt: string): Promise<string> {
+  const apiKey = getGroqApiKey();
+
+  const body = {
+    model,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a precise, reliable assistant. Always return valid JSON matching the requested schema. ' +
+          'Respond with JSON only — no explanations, no markdown code fences.',
+      },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.4,
+    response_format: { type: 'json_object' },
+  };
+
+  // Retry transient failures (rate limits, server hiccups, network errors)
+  const maxAttempts = 4;
+
+  for (let attempt = 1; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(GROQ_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        // Don't let a hung upstream leave the request dangling forever
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (err) {
+      if (attempt >= maxAttempts) {
+        throw new Error(`Groq network error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await sleep(1000 * 2 ** (attempt - 1));
+      continue;
+    }
+
+    if (res.ok) {
+      const data = await res.json();
+      const content: unknown = data?.choices?.[0]?.message?.content;
+      if (typeof content === 'string' && content.trim()) {
+        return content;
+      }
+      throw new Error('Groq returned an empty completion');
+    }
+
+    const detail = await res.text().catch(() => '');
+    const retryable = res.status === 429 || res.status >= 500;
+
+    if (!retryable || attempt >= maxAttempts) {
+      throw new Error(
+        `Groq API error (HTTP ${res.status}): ${detail.slice(0, 300)}`
+      );
+    }
+
+    const retryAfterMs = (Number(res.headers.get('retry-after')) || 0) * 1000;
+    await sleep(Math.max(retryAfterMs, 1000 * 2 ** (attempt - 1)));
+  }
+}
+
+/**
+ * Get the fast/cheap model for extraction and card generation.
+ */
 export function getFastModel() {
-  return getGenAI().getGenerativeModel({ model: FAST_MODEL });
+  return new GroqModel(FAST_MODEL);
 }
 
+/**
+ * Get the stronger model for graph-merge reasoning.
+ */
 export function getStrongModel() {
-  return getGenAI().getGenerativeModel({ model: STRONG_MODEL });
-}
-
-/**
- * Generate vector embedding for text using Gemini's embedding model.
- * Returns a 768-dimension vector (text-embedding-004 outputs 768 dims).
- */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const model = getGenAI().getGenerativeModel({ model: EMBEDDING_MODEL });
-  
-  // Truncate text to avoid token limits (approx 8000 tokens max)
-  const truncatedText = text.slice(0, 30000);
-  
-  const result = await model.embedContent(truncatedText);
-  return result.embedding.values;
-}
-
-/**
- * Generate embeddings for multiple texts in batch.
- * More efficient than calling generateEmbedding one at a time.
- */
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const model = getGenAI().getGenerativeModel({ model: EMBEDDING_MODEL });
-  
-  const truncatedTexts = texts.map(t => t.slice(0, 30000));
-  
-  const result = await model.batchEmbedContents({
-    requests: truncatedTexts.map(text => ({
-      model: EMBEDDING_MODEL,
-      content: { role: 'user', parts: [{ text }] },
-    })),
-  });
-  
-  return result.embeddings.map(e => e.values);
+  return new GroqModel(STRONG_MODEL);
 }
 
 /**

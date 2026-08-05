@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne, execute, generateId } from '@/lib/db';
+import { deleteEmbedding, graphNamespace } from '@/lib/ai/vector';
 import type { GraphNode, GraphEdge, Subject } from '@/lib/types';
 
 export async function GET(
@@ -183,6 +184,8 @@ export async function PATCH(
 
   if (action === 'delete') {
     await execute('DELETE FROM graph_nodes WHERE id = ? AND subject_id = ?', [node_id, params.subjectId]);
+    // Purge the node's embedding from Pinecone so it can't match future dedup queries
+    await deleteEmbedding(graphNamespace(params.subjectId), node_id);
   }
 
   if (action === 'merge' && merge_into_id) {
@@ -192,6 +195,8 @@ export async function PATCH(
       execute('UPDATE graph_nodes SET reference_count = reference_count + 1, manually_edited = TRUE WHERE id = ?', [merge_into_id]),
     ]);
     await execute('DELETE FROM graph_nodes WHERE id = ?', [node_id]);
+    // Merged-away node no longer exists — remove its stale embedding
+    await deleteEmbedding(graphNamespace(params.subjectId), node_id);
   }
 
   if (action === 'add_edge' && from_node_id && to_node_id) {

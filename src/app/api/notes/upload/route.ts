@@ -63,6 +63,8 @@ export async function POST(request: NextRequest) {
   }
 
   let noteFileId: string;
+  const isNewFile = !existingFile;
+  const previousHash = existingFile?.content_hash ?? null;
 
   if (existingFile) {
     await execute(
@@ -90,6 +92,18 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Pipeline error:', error);
+
+    // Roll back the note-file change so a retry actually reprocesses instead of
+    // being short-circuited by the "content unchanged" dedup check.
+    if (isNewFile) {
+      await execute('DELETE FROM note_files WHERE id = ?', [noteFileId]);
+    } else if (previousHash) {
+      await execute(
+        'UPDATE note_files SET content_hash = ?, updated_at = datetime("now") WHERE id = ?',
+        [previousHash, noteFileId]
+      );
+    }
+
     return NextResponse.json(
       { error: 'AI PROCESSING FAILED', detail: message, note_file_id: noteFileId },
       { status: 500 }

@@ -1,7 +1,8 @@
-import { getStrongModel, parseJsonResponse, generateEmbedding } from './client';
+import { getStrongModel, parseJsonResponse } from './client';
+import { generateEmbeddings, upsertEmbeddings, graphNamespace } from './vector';
 import type { ExtractedConcept } from './extract';
 import type { GraphNode } from '../types';
-import { queryAll, queryOne, execute, generateId, findSimilarNodes, updateNodeEmbedding } from '../db';
+import { queryOne, executeStrict, generateId } from '../db';
 import { stringSimilarity } from './utils';
 
 // Re-export for external use
@@ -91,8 +92,8 @@ export async function mergeConceptsIntoGraph(
 
         if (decision.action === 'skip') {
           nodeMergeMap[concept.name] = '';
-        } else if (decision.action === 'merge' && decision.merge_with_id) {
-          await execute(
+        } else        if (decision.action === 'merge' && decision.merge_with_id) {
+          await executeStrict(
             'UPDATE graph_nodes SET reference_count = reference_count + 1, updated_at = NOW() WHERE id = $1',
             [decision.merge_with_id]
           );
@@ -139,7 +140,7 @@ export async function mergeConceptsIntoGraph(
 
       if (!existingEdge) {
         const edgeId = generateId();
-        await execute(
+        await executeStrict(
           "INSERT INTO graph_edges (id, subject_id, from_node_id, to_node_id, relationship_type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())",
           [edgeId, subjectId, fromId, toId, rel.type]
         );
@@ -148,29 +149,21 @@ export async function mergeConceptsIntoGraph(
     }
   }
 
+  // Store embeddings for every node created in this call — batched into one
+  // embed + one upsert instead of two Pinecone calls per node.
+  await storeNodeEmbeddings(subjectId, delta.nodes_created);
+
   return delta;
 }
 
 async function createNode(subjectId: string, concept: ExtractedConcept): Promise<GraphNode> {
   const id = generateId();
 
-  // Generate embedding for the concept (name + definition combined)
-  const embeddingText = `${concept.name}: ${concept.definition}`;
-  let embedding: number[] | null = null;
-  
-  try {
-    embedding = await generateEmbedding(embeddingText);
-  } catch (err) {
-    console.error('Failed to generate embedding for node:', concept.name, err);
-    // Continue without embedding - will work but dedup won't be as effective
-  }
-
-  // Store node with embedding
-  const embeddingStr = embedding ? `[${embedding.join(',')}]` : 'NULL';
-  await execute(
-    `INSERT INTO graph_nodes (id, subject_id, name, definition, reference_count, manually_edited, embedding, created_at, updated_at) 
-     VALUES ($1, $2, $3, $4, 1, FALSE, ${embedding ? '$5::vector' : 'NULL'}, NOW(), NOW())`,
-    embedding ? [id, subjectId, concept.name, concept.definition, embeddingStr] : [id, subjectId, concept.name, concept.definition]
+  // Persist the node (strict — a failure here must surface, not vanish)
+  await executeStrict(
+    `INSERT INTO graph_nodes (id, subject_id, name, definition, reference_count, manually_edited, created_at, updated_at) 
+     VALUES ($1, $2, $3, $4, 1, FALSE, NOW(), NOW())`,
+    [id, subjectId, concept.name, concept.definition]
   );
 
   const now = new Date().toISOString();
@@ -187,24 +180,29 @@ async function createNode(subjectId: string, concept: ExtractedConcept): Promise
 }
 
 /**
- * Check if a concept is similar to existing nodes using vector embeddings.
- * Returns the most similar node if above threshold, null otherwise.
+ * Batch-store embeddings for newly created nodes — ONE embed call + ONE
+ * multi-record upsert instead of two Pinecone calls per node.
  */
-export async function findSimilarConcept(
-  subjectId: string,
-  concept: ExtractedConcept
-): Promise<{ id: string; name: string; similarity: number } | null> {
+async function storeNodeEmbeddings(subjectId: string, nodes: GraphNode[]): Promise<void> {
+  if (nodes.length === 0) return;
   try {
-    const embeddingText = `${concept.name}: ${concept.definition}`;
-    const embedding = await generateEmbedding(embeddingText);
-    
-    const similar = await findSimilarNodes(subjectId, embedding, 0.85, 1);
-    return similar.length > 0 ? similar[0] : null;
+    const embeddings = await generateEmbeddings(
+      nodes.map((n) => `${n.name}: ${n.definition}`)
+    );
+    await upsertEmbeddings(
+      graphNamespace(subjectId),
+      nodes.map((n, i) => ({
+        id: n.id,
+        embedding: embeddings[i],
+        metadata: { subject_id: subjectId, name: n.name },
+      }))
+    );
   } catch (err) {
-    console.error('Vector similarity search failed:', err);
-    return null;
+    // Best-effort — dedup degrades, pipeline continues
+    console.error('Failed to store node embeddings in Pinecone:', err);
   }
 }
+
 
 function buildAllNodeMap(existing: GraphNode[], created: GraphNode[]): Record<string, string> {
   const map: Record<string, string> = {};

@@ -50,8 +50,14 @@ function convertSql(sqlQuery: string): string {
 export async function initializeSchema(): Promise<void> {
   const client = getSql();
   
-  // Enable vector extension for embeddings
-  await client.unsafe('CREATE EXTENSION IF NOT EXISTS vector');
+  // ------------------------------------------------------------------
+  // Migration: embeddings moved to Pinecone (src/lib/ai/vector.ts).
+  // Drop the old pgvector columns/indexes if a pre-Pinecone schema exists.
+  // ------------------------------------------------------------------
+  await client.unsafe('DROP INDEX IF EXISTS idx_graph_nodes_embedding');
+  await client.unsafe('DROP INDEX IF EXISTS idx_flashcards_embedding');
+  await client.unsafe('ALTER TABLE IF EXISTS graph_nodes DROP COLUMN IF EXISTS embedding');
+  await client.unsafe('ALTER TABLE IF EXISTS flashcards DROP COLUMN IF EXISTS embedding');
 
   // Users table
   await client.unsafe(`
@@ -99,7 +105,7 @@ export async function initializeSchema(): Promise<void> {
     )
   `);
 
-  // Graph nodes table with vector embedding
+  // Graph nodes table (embeddings live in Pinecone, not Postgres)
   await client.unsafe(`
     CREATE TABLE IF NOT EXISTS graph_nodes (
       id TEXT PRIMARY KEY,
@@ -108,7 +114,6 @@ export async function initializeSchema(): Promise<void> {
       definition TEXT NOT NULL DEFAULT '',
       reference_count INTEGER NOT NULL DEFAULT 1,
       manually_edited BOOLEAN NOT NULL DEFAULT FALSE,
-      embedding vector(1536),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -135,7 +140,7 @@ export async function initializeSchema(): Promise<void> {
     )
   `);
 
-  // Flashcards table with vector embedding
+  // Flashcards table (embeddings live in Pinecone, not Postgres)
   await client.unsafe(`
     CREATE TABLE IF NOT EXISTS flashcards (
       id TEXT PRIMARY KEY,
@@ -146,7 +151,6 @@ export async function initializeSchema(): Promise<void> {
       back TEXT NOT NULL,
       card_type TEXT NOT NULL DEFAULT 'qa',
       status TEXT NOT NULL DEFAULT 'new',
-      embedding vector(1536),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       next_review_at TIMESTAMPTZ,
@@ -209,9 +213,6 @@ export async function initializeSchema(): Promise<void> {
   await client.unsafe('CREATE INDEX IF NOT EXISTS idx_devices_pairing_code ON devices(pairing_code)');
   await client.unsafe('CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(token)');
 
-  // Vector similarity indexes (for fast embedding search)
-  await client.unsafe('CREATE INDEX IF NOT EXISTS idx_graph_nodes_embedding ON graph_nodes USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)');
-  await client.unsafe('CREATE INDEX IF NOT EXISTS idx_flashcards_embedding ON flashcards USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)');
 }
 
 export function generateId(): string {
@@ -220,19 +221,31 @@ export function generateId(): string {
 
 /**
  * Execute a query and return all rows.
+ * Errors are swallowed and an empty array is returned — use for best-effort reads.
  */
 export async function queryAll<T = Record<string, unknown>>(
   sqlQuery: string,
   args: any[] = []
 ): Promise<T[]> {
   try {
-    const converted = convertSql(sqlQuery);
-    const result = await getSql().unsafe(converted, args);
-    return result as unknown as T[];
+    return await queryAllStrict<T>(sqlQuery, args);
   } catch (err) {
     console.error('queryAll error:', { sql: sqlQuery, args, err });
     return [];
   }
+}
+
+/**
+ * Execute a query and return all rows, throwing on failure.
+ * Use for reads where a failure must not silently look like "no data" (e.g. the AI pipeline).
+ */
+export async function queryAllStrict<T = Record<string, unknown>>(
+  sqlQuery: string,
+  args: any[] = []
+): Promise<T[]> {
+  const converted = convertSql(sqlQuery);
+  const result = await getSql().unsafe(converted, args);
+  return result as unknown as T[];
 }
 
 /**
@@ -253,16 +266,27 @@ export async function queryOne<T = Record<string, unknown>>(
 
 /**
  * Execute a statement (INSERT, UPDATE, DELETE).
+ * Errors are swallowed and `false` is returned — use for best-effort writes.
  */
 export async function execute(sqlQuery: string, args: any[] = []): Promise<boolean> {
   try {
-    const converted = convertSql(sqlQuery);
-    await getSql().unsafe(converted, args);
+    await executeStrict(sqlQuery, args);
     return true;
   } catch (err) {
     console.error('execute error:', { sql: sqlQuery, args, err });
     return false;
   }
+}
+
+/**
+ * Execute a statement, throwing on failure.
+ * Use for critical writes where silent data loss is worse than a loud error
+ * (e.g. the AI pipeline's node/card persistence).
+ */
+export async function executeStrict(sqlQuery: string, args: any[] = []): Promise<true> {
+  const converted = convertSql(sqlQuery);
+  await getSql().unsafe(converted, args);
+  return true;
 }
 
 /**
@@ -290,87 +314,6 @@ export function getClient() {
  */
 export function getDb() {
   return getSql();
-}
-
-/**
- * Vector similarity search for graph nodes.
- * Finds concepts similar to the given embedding vector.
- */
-export async function findSimilarNodes(
-  subjectId: string,
-  embedding: number[],
-  threshold: number = 0.85,
-  limit: number = 5
-): Promise<Array<{ id: string; name: string; definition: string; similarity: number }>> {
-  const embeddingStr = `[${embedding.join(',')}]`;
-  
-  const query = `
-    SELECT id, name, definition,
-      1 - (embedding <=> $1::vector) AS similarity
-    FROM graph_nodes
-    WHERE subject_id = $2
-      AND embedding IS NOT NULL
-      AND 1 - (embedding <=> $1::vector) > $3
-    ORDER BY similarity DESC
-    LIMIT $4
-  `;
-  
-  return await queryAll(query, [embeddingStr, subjectId, threshold, limit]);
-}
-
-/**
- * Vector similarity search for flashcards.
- * Finds cards similar to the given embedding vector.
- */
-export async function findSimilarCards(
-  subjectId: string,
-  embedding: number[],
-  threshold: number = 0.85,
-  limit: number = 5
-): Promise<Array<{ id: string; front: string; back: string; similarity: number }>> {
-  const embeddingStr = `[${embedding.join(',')}]`;
-  
-  const query = `
-    SELECT id, front, back,
-      1 - (embedding <=> $1::vector) AS similarity
-    FROM flashcards
-    WHERE subject_id = $2
-      AND status != 'deleted'
-      AND embedding IS NOT NULL
-      AND 1 - (embedding <=> $1::vector) > $3
-    ORDER BY similarity DESC
-    LIMIT $4
-  `;
-  
-  return await queryAll(query, [embeddingStr, subjectId, threshold, limit]);
-}
-
-/**
- * Update the embedding for a graph node.
- */
-export async function updateNodeEmbedding(
-  nodeId: string,
-  embedding: number[]
-): Promise<boolean> {
-  const embeddingStr = `[${embedding.join(',')}]`;
-  return await execute(
-    'UPDATE graph_nodes SET embedding = $1::vector WHERE id = $2',
-    [embeddingStr, nodeId]
-  );
-}
-
-/**
- * Update the embedding for a flashcard.
- */
-export async function updateCardEmbedding(
-  cardId: string,
-  embedding: number[]
-): Promise<boolean> {
-  const embeddingStr = `[${embedding.join(',')}]`;
-  return await execute(
-    'UPDATE flashcards SET embedding = $1::vector WHERE id = $2',
-    [embeddingStr, cardId]
-  );
 }
 
 /**

@@ -23,6 +23,8 @@ export default function NotesListPage() {
   const [notes, setNotes] = useState<NoteFile[]>([]);
   const [subjectName, setSubjectName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchNotes = useCallback(async () => {
     const [notesRes, subjectRes] = await Promise.all([
@@ -42,6 +44,22 @@ export default function NotesListPage() {
   }, [subjectId, router]);
 
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
+
+  async function handleDeleteNote(noteId: string) {
+    setDeletingId(noteId);
+    try {
+      const res = await fetch(`/api/delete?type=notes&id=${noteId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      } else {
+        console.error('Delete failed:', res.status);
+      }
+    } catch (err) {
+      console.error('Delete note failed:', err);
+    }
+    setDeletingId(null);
+    setConfirmDeleteId(null);
+  }
 
   return (
     <div className="page-container">
@@ -82,7 +100,7 @@ export default function NotesListPage() {
           <div
             className="data-row-grid hide-on-mobile"
             style={{
-              gridTemplateColumns: '1fr 100px 100px 100px 100px',
+              gridTemplateColumns: '1fr 90px 90px 90px 170px',
               backgroundColor: 'var(--mono-panel)',
               border: '2px solid var(--ink)',
             }}
@@ -99,7 +117,7 @@ export default function NotesListPage() {
               key={note.id}
               className="bento-tile bento-tile-hoverable data-row-grid"
               style={{
-                gridTemplateColumns: '1fr 100px 100px 100px 100px',
+                gridTemplateColumns: '1fr 90px 90px 90px 170px',
                 borderColor: 'var(--ink)',
               }}
             >
@@ -120,14 +138,41 @@ export default function NotesListPage() {
                 <span className="hide-on-mobile text-mono" style={{ opacity: 0.5, fontSize: '11px' }}>CARDS:</span>
                 <span className="text-mono" style={{ opacity: 0.7 }}>{note.card_count}</span>
               </div>
-              <Link
-                href={`/dashboard/subjects/${subjectId}/notes/${note.id}`}
-                className="btn btn-ghost"
-                style={{ fontSize: '11px', textDecoration: 'none', padding: '6px 10px', width: 'fit-content' }}
-                id={`note-view-${note.id}`}
-              >
-                VIEW →
-              </Link>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <Link
+                  href={`/dashboard/subjects/${subjectId}/notes/${note.id}`}
+                  className="btn btn-ghost"
+                  style={{ fontSize: '11px', textDecoration: 'none', padding: '6px 10px', width: 'fit-content' }}
+                  id={`note-view-${note.id}`}
+                >
+                  VIEW →
+                </Link>
+                {confirmDeleteId === note.id ? (
+                  <button
+                    className="btn btn-destructive"
+                    onClick={() => handleDeleteNote(note.id)}
+                    disabled={deletingId === note.id}
+                    style={{ fontSize: '11px', padding: '6px 10px', width: 'fit-content' }}
+                    id={`note-delete-confirm-${note.id}`}
+                  >
+                    {deletingId === note.id ? 'DELETING...' : 'SURE?'}
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setConfirmDeleteId(note.id);
+                      window.setTimeout(() => {
+                        setConfirmDeleteId((c) => (c === note.id ? null : c));
+                      }, 4000);
+                    }}
+                    style={{ fontSize: '11px', padding: '6px 10px', width: 'fit-content', color: 'var(--alert)' }}
+                    id={`note-delete-${note.id}`}
+                  >
+                    DELETE
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
