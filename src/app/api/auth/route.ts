@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
 
   if (action === 'login') {
     const dbUser = await findUserByEmail(email);
-    if (!dbUser || dbUser.password_hash !== hashPassword(password)) {
+    const hashedInput = await hashPassword(password);
+    if (!dbUser || dbUser.password_hash !== hashedInput) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 

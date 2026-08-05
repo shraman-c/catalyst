@@ -3,15 +3,20 @@ import { cookies } from 'next/headers';
 import { queryOne, execute, generateId, initializeSchema } from './db';
 import type { SessionUser } from './types';
 
-const SECRET = new TextEncoder().encode(
-  process.env.NEXTAUTH_SECRET || 'synthesizer-dev-secret-change-in-prod-32chars'
-);
+const secretStr = process.env.NEXTAUTH_SECRET;
+if (!secretStr) {
+  throw new Error(
+    'NEXTAUTH_SECRET environment variable is required. ' +
+    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))" ' +
+    'and add it to .env.local'
+  );
+}
+const SECRET = new TextEncoder().encode(secretStr);
 
 export const COOKIE_NAME_EXPORT = 'synthesizer_session';
 
-// Use a global symbol so HMR doesn't reset the flag mid-request,
+// Use a global flag so HMR doesn't reset the flag mid-request,
 // but a real server restart (new process) always runs migrations.
-const SCHEMA_KEY = Symbol.for('synthesizer_schema_v3');
 declare global {
   // eslint-disable-next-line no-var
   var __catalystSchemaInit: boolean | undefined;
@@ -48,22 +53,24 @@ export async function getSession(): Promise<SessionUser | null> {
   return verifySession(token);
 }
 
-export function hashPassword(password: string): string {
+/**
+ * Hash a password using SHA-256. Returns a hex-encoded hash.
+ * This is a significant improvement over the previous DJB2 hash but for
+ * production use, consider migrating to bcrypt or argon2.
+ */
+export async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'synthesizer-salt');
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data[i];
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36) + data.length.toString(36);
+  const data = encoder.encode(password + 'synthesizer-salt-v2');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 export async function createUser(email: string, password: string, name: string) {
   await ensureSchema();
   const id = generateId();
-  const password_hash = hashPassword(password);
+  const password_hash = await hashPassword(password);
 
   try {
     await execute(
