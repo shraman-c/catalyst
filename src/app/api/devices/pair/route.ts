@@ -3,9 +3,13 @@ import { getSession, ensureSchema } from '@/lib/auth';
 import { queryOne, execute, generateId } from '@/lib/db';
 import { SignJWT } from 'jose';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'synthesizer-device-secret-change-in-production'
-);
+const jwtSecretStr = process.env.JWT_SECRET;
+if (!jwtSecretStr) {
+  throw new Error(
+    'JWT_SECRET environment variable is required for device pairing. Add it to .env.local'
+  );
+}
+const JWT_SECRET = new TextEncoder().encode(jwtSecretStr);
 
 interface Device {
   id: string;
