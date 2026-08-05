@@ -15,7 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Top navigation */}
       <nav className="nav-bar" style={{ position: 'sticky', top: 0, zIndex: 100, backgroundColor: 'var(--base)' }}>
         <Link href="/dashboard" className="nav-logo" id="nav-logo">
-          SYNTHESIZER
+          CATALYST
         </Link>
 
         <div className="flex gap-4 items-center" style={{ marginLeft: '40px' }} id="nav-links-desktop">

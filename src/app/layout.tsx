@@ -3,12 +3,12 @@ import "./globals.css";
 import { ThemeProvider } from "@/lib/ThemeProvider";
 
 export const metadata: Metadata = {
-  title: "Synthesizer — Turn Notes Into Knowledge",
+  title: "Catalyst — Turn Notes Into Knowledge",
   description:
-    "Synthesizer automatically turns your raw local notes into an interconnected knowledge graph and active-recall flashcards. Write in any editor — we handle the structure.",
+    "Catalyst automatically turns your raw local notes into an interconnected knowledge graph and active-recall flashcards. Write in any editor — we handle the structure.",
   keywords: ["notes", "flashcards", "knowledge graph", "spaced repetition", "studying"],
   openGraph: {
-    title: "Synthesizer — Turn Notes Into Knowledge",
+    title: "Catalyst — Turn Notes Into Knowledge",
     description: "Automatic knowledge graphs and flashcards from your raw notes.",
     type: "website",
   },

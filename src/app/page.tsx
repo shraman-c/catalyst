@@ -45,7 +45,7 @@ export default function HomePage() {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--base)', display: 'flex', flexDirection: 'column' }}>
       {/* Nav */}
       <nav className="nav-bar">
-        <span className="nav-logo">SYNTHESIZER</span>
+        <span className="nav-logo">CATALYST</span>
         <div className="flex gap-3 items-center" style={{ marginLeft: 'auto' }}>
           {/* Theme Toggle */}
           <button
