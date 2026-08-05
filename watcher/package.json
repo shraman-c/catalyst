@@ -1,0 +1,20 @@
+{
+  "name": "synthesizer-watcher",
+  "version": "1.0.0",
+  "description": "Local file watcher for Catalyst — monitors folders and syncs note changes to the dashboard automatically.",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "pair": "node index.js --pair"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "chokidar": "^3.6.0",
+    "commander": "^12.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

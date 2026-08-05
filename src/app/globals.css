@@ -1,0 +1,1173 @@
+/* ============================================================
+   SYNTHESIZER — Global Design System
+   Neo-Brutalist v2.0 per design.md
+   ============================================================ */
+
+/* --- 1. Reset & Base ---------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Color Tokens (design.md §1) */
+  --base: #F2F0E9;
+  --ink: #111111;
+  --surface: #FFFFFF;
+  --signal: #F4B400;
+  --link: #2E7D5B;
+  --alert: #D64545;
+  --mono-panel: #E7E3D8;
+
+  /* Typography */
+  --font-display: 'Archivo Black', 'Arial Black', sans-serif;
+  --font-body: 'Space Grotesk', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Courier New', monospace;
+
+  /* Border widths */
+  --border-width: 3px;
+  --border-thick: 4px;
+
+  /* Hard offset shadow (design.md §3.1) — no blur, no opacity falloff */
+  --shadow-offset: 4px;
+  --shadow-lg-offset: 6px;
+
+  /* Spacing */
+  --gap: 12px;
+  --gap-lg: 20px;
+}
+
+/* --- Dark mode: base↔ink inversion (design.md §1) ---------- */
+/* System preference (default) */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --base: #111111;
+    --ink: #F2F0E9;
+    --surface: #1A1A1A;
+    --mono-panel: #222018;
+  }
+}
+
+/* Manual toggle: class-based */
+:root.dark,
+html.dark {
+  --base: #111111;
+  --ink: #F2F0E9;
+  --surface: #1A1A1A;
+  --mono-panel: #222018;
+}
+
+:root.light,
+html.light {
+  --base: #F2F0E9;
+  --ink: #111111;
+  --surface: #FFFFFF;
+  --mono-panel: #E7E3D8;
+}
+
+html {
+  font-size: 16px;
+  background-color: var(--base);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  background-color: var(--base);
+  color: var(--ink);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* --- 2. Typography Scale (design.md §2) ------------------- */
+.text-display-xl {
+  font-family: var(--font-display);
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.text-display-lg {
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.text-display-md {
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.text-body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.text-body-sm {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.text-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* --- 3. Border System (design.md §0, §1) ------------------- */
+/* Every colored block gets a full ink border — no exceptions */
+.border-ink {
+  border: var(--border-width) solid var(--ink);
+}
+
+.border-ink-thick {
+  border: var(--border-thick) solid var(--ink);
+}
+
+.border-signal {
+  border: var(--border-width) solid var(--signal);
+}
+
+.border-link {
+  border: var(--border-width) solid var(--link);
+}
+
+.border-alert {
+  border: var(--border-width) solid var(--alert);
+}
+
+/* --- 4. Hard Offset Shadows (design.md §3.1, §4.1) --------- */
+/* Solid ink rectangle, offset 4-6px, NO blur, NO opacity falloff */
+.shadow-hard {
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.shadow-hard-lg {
+  box-shadow: var(--shadow-lg-offset) var(--shadow-lg-offset) 0 0 var(--ink);
+}
+
+.shadow-hard-signal {
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--signal);
+}
+
+/* --- 5. Buttons (design.md §4.1) --------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 10px 20px;
+  border: var(--border-width) solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: none; /* Brutalism: instant state changes */
+  position: relative;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Primary: signal fill, ink text */
+.btn-primary {
+  background-color: var(--signal);
+  color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+/* Press animation: shadow disappears, button shifts down-right */
+.btn-primary:active {
+  box-shadow: none;
+  transform: translate(var(--shadow-offset), var(--shadow-offset));
+}
+
+.btn-primary:hover:not(:active) {
+  background-color: var(--signal);
+}
+
+/* Secondary: surface fill, ink text */
+.btn-secondary {
+  background-color: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.btn-secondary:active {
+  box-shadow: none;
+  transform: translate(var(--shadow-offset), var(--shadow-offset));
+}
+
+/* Destructive: alert fill, base text */
+.btn-destructive {
+  background-color: var(--alert);
+  color: var(--base);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.btn-destructive:active {
+  box-shadow: none;
+  transform: translate(var(--shadow-offset), var(--shadow-offset));
+}
+
+/* Ghost: no fill */
+.btn-ghost {
+  background-color: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.btn-ghost:hover {
+  background-color: var(--mono-panel);
+}
+
+/* Focus state: 3px signal border (design.md §5) */
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--signal);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .btn:active {
+    transform: none;
+  }
+}
+
+/* --- 6. Rating Buttons (design.md §4.3) -------------------- */
+.btn-rating-again {
+  background-color: var(--alert);
+  color: var(--base);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.btn-rating-hard {
+  background-color: var(--signal);
+  color: var(--ink);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.btn-rating-good {
+  background-color: var(--link);
+  color: var(--surface);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.btn-rating-easy {
+  background-color: #1A5C3B; /* darker link */
+  color: var(--surface);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.btn-rating-again:active,
+.btn-rating-hard:active,
+.btn-rating-good:active,
+.btn-rating-easy:active {
+  box-shadow: none;
+  transform: translate(var(--shadow-offset), var(--shadow-offset));
+}
+
+/* --- 7. Tiles / Bento Grid (design.md §3) ------------------ */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--gap);
+  width: 100%;
+}
+
+.bento-tile {
+  background-color: var(--surface);
+  border: var(--border-thick) solid var(--ink);
+  padding: 20px;
+  position: relative;
+}
+
+.bento-tile-signal {
+  background-color: var(--signal);
+  border: var(--border-thick) solid var(--ink);
+  padding: 20px;
+}
+
+.bento-tile-mono {
+  background-color: var(--mono-panel);
+  border: var(--border-thick) solid var(--ink);
+  padding: 20px;
+}
+
+/* Hover: hard offset shadow appears */
+.bento-tile-hoverable {
+  cursor: pointer;
+  transition: none;
+}
+
+.bento-tile-hoverable:hover {
+  box-shadow: var(--shadow-lg-offset) var(--shadow-lg-offset) 0 0 var(--ink);
+  transform: translate(calc(-1 * var(--shadow-offset) / 2), calc(-1 * var(--shadow-offset) / 2));
+}
+
+/* Grid spans */
+.col-span-1 { grid-column: span 1; }
+.col-span-2 { grid-column: span 2; }
+.col-span-3 { grid-column: span 3; }
+.col-span-4 { grid-column: span 4; }
+.col-span-5 { grid-column: span 5; }
+.col-span-6 { grid-column: span 6; }
+.col-span-7 { grid-column: span 7; }
+.col-span-8 { grid-column: span 8; }
+.col-span-9 { grid-column: span 9; }
+.col-span-10 { grid-column: span 10; }
+.col-span-11 { grid-column: span 11; }
+.col-span-12 { grid-column: span 12; }
+
+.row-span-1 { grid-row: span 1; }
+.row-span-2 { grid-row: span 2; }
+
+/* --- 8. Stat Block (design.md §3.2) ------------------------ */
+/* Big blocky number in a box — core brutalist unit */
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-block__number {
+  font-family: var(--font-display);
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.stat-block__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.7;
+}
+
+/* --- 9. Mono Tag (design.md §4.4, §2) ---------------------- */
+.mono-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 2px solid var(--ink);
+  background-color: var(--mono-panel);
+  white-space: nowrap;
+}
+
+.mono-tag-signal {
+  background-color: var(--signal);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.mono-tag-link {
+  background-color: var(--link);
+  color: var(--surface);
+  border-color: var(--ink);
+}
+
+.mono-tag-alert {
+  background-color: var(--alert);
+  color: var(--base);
+  border-color: var(--ink);
+}
+
+/* Structural tag (design.md §4.4) */
+.structural-tag {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--ink);
+  background-color: var(--mono-panel);
+  opacity: 0.8;
+}
+
+/* --- 10. Divider ------------------------------------------- */
+.divider-ink {
+  height: 4px;
+  background-color: var(--ink);
+  border: none;
+  margin: 0;
+}
+
+.divider-ink-v {
+  width: 4px;
+  background-color: var(--ink);
+  border: none;
+  align-self: stretch;
+}
+
+/* --- 11. Input / Textarea ---------------------------------- */
+.input-ink {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 10px 14px;
+  border: var(--border-width) solid var(--ink);
+  border-radius: 0;
+  background-color: var(--surface);
+  color: var(--ink);
+  width: 100%;
+  outline: none;
+}
+
+.input-ink:focus {
+  border-color: var(--signal);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+.textarea-ink {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 14px;
+  border: var(--border-width) solid var(--ink);
+  border-radius: 0;
+  background-color: var(--surface);
+  color: var(--ink);
+  width: 100%;
+  outline: none;
+  resize: vertical;
+  min-height: 200px;
+}
+
+.textarea-ink:focus {
+  border-color: var(--signal);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 0 var(--ink);
+}
+
+/* --- 12. Status / Alert Blocks ----------------------------- */
+.alert-block {
+  border: var(--border-width) solid var(--alert);
+  background-color: var(--surface);
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--alert);
+}
+
+.success-block {
+  border: var(--border-width) solid var(--link);
+  background-color: var(--surface);
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--link);
+}
+
+/* Processing/syncing block */
+.processing-block {
+  border: var(--border-width) solid var(--ink);
+  background-color: var(--mono-panel);
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* --- 13. Empty State (design.md §6) ------------------------ */
+.empty-state {
+  border: var(--border-thick) solid var(--ink);
+  padding: 40px;
+  text-align: center;
+  background-color: var(--surface);
+}
+
+.empty-state__text {
+  font-family: var(--font-display);
+  font-size: 20px;
+  text-transform: uppercase;
+}
+
+/* --- 14. Flashcard (design.md §4.3) ----------------------- */
+.flashcard {
+  border: var(--border-thick) solid var(--ink);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-lg-offset) var(--shadow-lg-offset) 0 0 var(--ink);
+  padding: 40px;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+}
+
+/* --- 15. Navigation ---------------------------------------- */
+.nav-bar {
+  border-bottom: var(--border-thick) solid var(--ink);
+  background-color: var(--base);
+  padding: 0 var(--gap-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+  height: 60px;
+}
+
+.nav-logo {
+  font-family: var(--font-display);
+  font-size: 20px;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.nav-link {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 6px 0;
+  border-bottom: 3px solid transparent;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  border-bottom-color: var(--ink);
+}
+
+.nav-link:focus-visible {
+  outline: none;
+  border-bottom-color: var(--signal);
+}
+
+/* --- 16. Upload Zone --------------------------------------- */
+.upload-zone {
+  border: var(--border-thick) dashed var(--ink);
+  background-color: var(--surface);
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: none;
+}
+
+.upload-zone:hover,
+.upload-zone.dragging {
+  background-color: var(--mono-panel);
+  border-style: solid;
+}
+
+/* --- 17. Graph Container ---------------------------------- */
+.graph-container {
+  border: var(--border-thick) solid var(--ink);
+  background-color: var(--surface);
+  position: relative;
+  overflow: hidden;
+}
+
+/* --- 18. Side Panel --------------------------------------- */
+.side-panel {
+  border-left: var(--border-thick) solid var(--ink);
+  background-color: var(--surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-panel__header {
+  padding: 16px 20px;
+  border-bottom: var(--border-width) solid var(--ink);
+  background-color: var(--mono-panel);
+}
+
+.side-panel__body {
+  padding: 20px;
+  flex: 1;
+}
+
+/* --- 19. Badge / Tag row ---------------------------------- */
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* --- 20. Responsive collapse (design.md §3.3) ------------- */
+@media (max-width: 768px) {
+  .bento-grid {
+    grid-template-columns: 1fr;
+    gap: var(--gap);
+  }
+
+  .col-span-1, .col-span-2, .col-span-3, .col-span-4,
+  .col-span-5, .col-span-6, .col-span-7, .col-span-8,
+  .col-span-9, .col-span-10, .col-span-11, .col-span-12 {
+    grid-column: span 1;
+  }
+
+  .row-span-2 {
+    grid-row: span 1;
+  }
+
+  .text-display-xl {
+    font-size: 28px;
+  }
+
+  .stat-block__number {
+    font-size: 32px;
+  }
+}
+
+/* --- 21. Utility ------------------------------------------ */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-1 { flex: 1; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.gap-5 { gap: 20px; }
+.gap-6 { gap: 24px; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.relative { position: relative; }
+.overflow-hidden { overflow: hidden; }
+.min-h-screen { min-height: 100vh; }
+.p-4 { padding: 16px; }
+.p-5 { padding: 20px; }
+.p-6 { padding: 24px; }
+.px-4 { padding-left: 16px; padding-right: 16px; }
+.py-2 { padding-top: 8px; padding-bottom: 8px; }
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 12px; }
+.mt-4 { margin-top: 16px; }
+.mt-6 { margin-top: 24px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-4 { margin-bottom: 16px; }
+.ml-auto { margin-left: auto; }
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.opacity-70 { opacity: 0.7; }
+.text-center { text-align: center; }
+.cursor-pointer { cursor: pointer; }
+
+/* --- Scrollbar styling ------------------------------------ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--mono-panel);
+  border-left: 1px solid var(--ink);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink);
+}
+
+/* --- Markdown rendered note content ----------------------- */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+  margin-top: 20px;
+}
+
+.markdown-content p {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.markdown-content code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background-color: var(--mono-panel);
+  border: 1px solid var(--ink);
+  padding: 1px 5px;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 20px;
+  margin-bottom: 12px;
+}
+
+.markdown-content li {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+/* ============================================================
+   22. Responsive Page Layout
+   ============================================================ */
+
+/* Fluid page container — replaces hard-coded padding: 32px 40px */
+.page-container {
+  padding: clamp(16px, 4vw, 40px) clamp(16px, 5vw, 48px);
+  max-width: 1400px;
+  width: 100%;
+}
+
+/* Page header: title + action button side-by-side, wraps on mobile */
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+/* ============================================================
+   23. Subject Grid
+   ============================================================ */
+.subject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--gap);
+}
+
+.subject-card {
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+}
+
+.subject-card__name {
+  flex: 1;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.subject-card__stats {
+  display: flex;
+  gap: clamp(12px, 3vw, 24px);
+  margin-top: auto;
+  padding-top: 12px;
+  flex-wrap: wrap;
+}
+
+/* Smaller stat number variant for subject tiles */
+.stat-block__number--sm {
+  font-size: clamp(22px, 4vw, 32px) !important;
+}
+
+.add-subject-tile {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 4px dashed var(--ink) !important;
+  background-color: transparent !important;
+}
+
+/* ============================================================
+   24. Modal / Overlay
+   ============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-panel {
+  background-color: var(--surface);
+  border: var(--border-thick) solid var(--ink);
+  box-shadow: 8px 8px 0 0 var(--ink);
+  padding: 28px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ============================================================
+   25. Responsive table / grid rows (cards list, notes list)
+   ============================================================ */
+
+/* These grid rows use inline gridTemplateColumns — on mobile we
+   revert to a single-column stacked layout via a wrapper class. */
+.data-row-grid {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  padding: 12px 16px;
+}
+
+/* On narrow screens collapse all grid rows to stacked */
+@media (max-width: 640px) {
+  .data-row-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Nav: compress links */
+  .nav-bar {
+    padding: 0 12px;
+    gap: 10px;
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .nav-logo {
+    font-size: 16px;
+  }
+
+  .nav-link {
+    font-size: 11px;
+  }
+
+  /* Page padding */
+  .page-container {
+    padding: 16px;
+  }
+
+  /* Subject grid: single column */
+  .subject-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Flashcard review */
+  .flashcard {
+    padding: 20px;
+    min-height: 160px;
+  }
+
+  /* Rating buttons: wrap */
+  .rating-row {
+    flex-wrap: wrap;
+  }
+
+  /* Quick links: 2 columns on mobile */
+  .quick-links-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* Stat row */
+  .stats-row-4 {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .stats-row-4 > * {
+    border-right: none !important;
+    border-bottom: var(--border-width) solid var(--ink);
+  }
+}
+
+@media (max-width: 900px) {
+  /* Subject grid: 2 columns max */
+  .subject-grid {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+
+  /* Quick links: 2 columns */
+  .quick-links-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* Stats row: 2 columns */
+  .stats-row-4 {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* ============================================================
+   26. Quick links grid utility
+   ============================================================ */
+.quick-links-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+/* ============================================================
+   26b. Upload + notes sidebar grid
+   ============================================================ */
+.upload-notes-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+  .upload-notes-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   27. Stats row utility (4-up stat panels)
+   ============================================================ */
+.stats-row-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: var(--border-thick) solid var(--ink);
+  margin-bottom: 24px;
+}
+
+.stats-row-4 > * {
+  padding: 20px 24px;
+  border-right: var(--border-width) solid var(--ink);
+}
+
+.stats-row-4 > *:last-child {
+  border-right: none;
+}
+
+/* ============================================================
+   28. Upload zone responsive
+   ============================================================ */
+@media (max-width: 640px) {
+  .upload-zone {
+    padding: 24px 16px;
+  }
+
+  .text-display-lg {
+    font-size: clamp(20px, 5vw, 28px);
+  }
+
+  .text-display-xl {
+    font-size: clamp(24px, 6vw, 40px);
+  }
+
+  .stat-block__number {
+    font-size: clamp(28px, 8vw, 40px);
+  }
+
+  /* Modals: full width on mobile */
+  .modal-panel {
+    padding: 20px 16px;
+  }
+}
+
+/* ============================================================
+   29. Graph side panel responsive
+   ============================================================ */
+@media (max-width: 768px) {
+  .side-panel {
+    border-left: none;
+    border-top: var(--border-thick) solid var(--ink);
+    max-height: 40vh;
+  }
+}
+
+/* ============================================================
+   30. Cards page filter tabs responsive
+   ============================================================ */
+.filter-tabs {
+  display: flex;
+  border: 3px solid var(--ink);
+  width: fit-content;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+/* ============================================================
+   31. Breadcrumb
+   ============================================================ */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   32. Rating buttons row
+   ============================================================ */
+.rating-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.rating-row .btn {
+  flex: 1;
+  min-width: 80px;
+  max-width: 160px;
+}
+
+@media (max-width: 480px) {
+  .rating-row .btn {
+    flex: 1 1 calc(50% - 4px);
+    max-width: none;
+  }
+}
+
+/* ============================================================
+   33. Utility classes for responsive display
+   ============================================================ */
+@media (max-width: 640px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+}
+
+/* ============================================================
+   34. New Utility Classes for Enhanced UX
+   ============================================================ */
+
+/* Loading skeleton animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--mono-panel) 25%, var(--surface) 50%, var(--mono-panel) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 2px;
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2000;
+  background-color: var(--surface);
+  border: var(--border-thick) solid var(--ink);
+  box-shadow: var(--shadow-lg-offset) var(--shadow-lg-offset) 0 0 var(--ink);
+  padding: 16px 20px;
+  max-width: 400px;
+}
+
+/* Tooltip */
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--ink);
+  color: var(--base);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+}
+
+/* Graph clustering badge */
+.cluster-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background-color: var(--signal);
+  border: 2px solid var(--ink);
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+/* Source excerpt highlight */
+.source-highlight {
+  background-color: var(--signal);
+  padding: 1px 4px;
+  border: 1px solid var(--ink);
+}
+
+/* Search results highlight */
+.search-highlight {
+  background-color: var(--signal);
+  padding: 0 2px;
+}
+
+/* Responsive graph container */
+@media (max-width: 768px) {
+  .graph-container {
+    height: 400px !important;
+  }
+  
+  .graph-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+  }
+}
+
+/* Mobile-first card layout */
+@media (max-width: 640px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .card-grid .bento-tile {
+    margin-bottom: 12px;
+  }
+}
+
+/* Dark mode adjustments for new components */
+@media (prefers-color-scheme: dark) {
+  .skeleton {
+    background: linear-gradient(90deg, var(--mono-panel) 25%, var(--surface) 50%, var(--mono-panel) 75%);
+  }
+  
+  .toast {
+    background-color: var(--surface);
+    border-color: var(--ink);
+  }
+}
