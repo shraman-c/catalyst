@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest) {
   // Upsert preferences
   await execute(
     `INSERT INTO user_preferences (user_id, card_density, graph_verbosity, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
+     VALUES (?, ?, ?, NOW())
      ON CONFLICT(user_id) DO UPDATE SET
        card_density = excluded.card_density,
        graph_verbosity = excluded.graph_verbosity,

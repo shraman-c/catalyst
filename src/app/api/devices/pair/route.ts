@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
-import { queryOne, execute, generateId } from '@/lib/db';
+import { queryOne, queryAll, execute, generateId } from '@/lib/db';
 import { SignJWT } from 'jose';
 
 const jwtSecretStr = process.env.JWT_SECRET;
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     await execute(
       `INSERT INTO devices (id, user_id, pairing_code, created_at)
-       VALUES (?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, NOW())`,
       [deviceId, session.id, code]
     );
 
@@ -127,7 +127,6 @@ export async function GET() {
 
   await ensureSchema();
 
-  const { queryAll } = await import('@/lib/db');
   const devices = await queryAll<Device>(
     `SELECT id, user_id, name, folder_path, subject_id, last_sync_at, created_at
      FROM devices WHERE user_id = ? AND token IS NOT NULL

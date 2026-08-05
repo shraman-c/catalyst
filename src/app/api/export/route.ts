@@ -96,6 +96,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
+/** Escape a value for safe CSV embedding: double-quote wrapping + internal quote doubling */
+function csvEscape(value: unknown): string {
+  const str = String(value ?? '').replace(/"/g, '""');
+  return `"${str}"`;
+}
+
 function convertToCSV(data: any): string {
   const lines: string[] = [];
   
@@ -104,26 +110,26 @@ function convertToCSV(data: any): string {
   
   // Subjects
   data.data.forEach((subjectData: any) => {
-    lines.push(`Subject,"${subjectData.subject.name}","${subjectData.subject.description || ''}","${subjectData.subject.created_at}",""`);
+    lines.push(`Subject,${csvEscape(subjectData.subject.name)},${csvEscape(subjectData.subject.description)},${csvEscape(subjectData.subject.created_at)},`);
     
     // Notes
     subjectData.notes.forEach((note: any) => {
-      lines.push(`Note,"${subjectData.subject.name}","${note.filename}","${note.content?.substring(0, 100) || ''}","${note.updated_at}"`);
+      lines.push(`Note,${csvEscape(subjectData.subject.name)},${csvEscape(note.filename)},${csvEscape(note.content?.substring(0, 100))},${csvEscape(note.updated_at)}`);
     });
     
     // Graph nodes
     subjectData.graph.nodes.forEach((node: any) => {
-      lines.push(`Concept,"${subjectData.subject.name}","${node.name}","${node.definition?.substring(0, 100) || ''}","${node.updated_at}"`);
+      lines.push(`Concept,${csvEscape(subjectData.subject.name)},${csvEscape(node.name)},${csvEscape(node.definition?.substring(0, 100))},${csvEscape(node.updated_at)}`);
     });
     
     // Graph edges
     subjectData.graph.edges.forEach((edge: any) => {
-      lines.push(`Relationship,"${subjectData.subject.name}","${edge.from_node_id} -> ${edge.to_node_id}","${edge.relationship_type}","${edge.created_at}"`);
+      lines.push(`Relationship,${csvEscape(subjectData.subject.name)},${csvEscape(`${edge.from_node_id} -> ${edge.to_node_id}`)},${csvEscape(edge.relationship_type)},${csvEscape(edge.created_at)}`);
     });
     
     // Cards
     subjectData.cards.forEach((card: any) => {
-      lines.push(`Card,"${subjectData.subject.name}","${card.front}","${card.back}","${card.card_type}"`);
+      lines.push(`Card,${csvEscape(subjectData.subject.name)},${csvEscape(card.front)},${csvEscape(card.back)},${csvEscape(card.card_type)}`);
     });
   });
   

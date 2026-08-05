@@ -68,21 +68,21 @@ export async function POST(request: NextRequest) {
 
   if (existingFile) {
     await execute(
-      'UPDATE note_files SET content_hash = ?, updated_at = datetime("now") WHERE id = ?',
+      'UPDATE note_files SET content_hash = ?, updated_at = NOW() WHERE id = ?',
       [contentHash, existingFile.id]
     );
     noteFileId = existingFile.id;
   } else {
     noteFileId = generateId();
     await execute(
-      "INSERT INTO note_files (id, subject_id, filename, content_hash, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+      "INSERT INTO note_files (id, subject_id, filename, content_hash, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())",
       [noteFileId, subjectId, filename, contentHash, 'upload']
     );
   }
 
   const versionId = generateId();
   await execute(
-    "INSERT INTO note_versions (id, note_file_id, content, created_at) VALUES (?, ?, ?, datetime('now'))",
+    "INSERT INTO note_versions (id, note_file_id, content, created_at) VALUES (?, ?, ?, NOW())",
     [versionId, noteFileId, content]
   );
 
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
       await execute('DELETE FROM note_files WHERE id = ?', [noteFileId]);
     } else if (previousHash) {
       await execute(
-        'UPDATE note_files SET content_hash = ?, updated_at = datetime("now") WHERE id = ?',
+        'UPDATE note_files SET content_hash = ?, updated_at = NOW() WHERE id = ?',
         [previousHash, noteFileId]
       );
     }

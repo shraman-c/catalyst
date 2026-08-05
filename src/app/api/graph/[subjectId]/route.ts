@@ -37,15 +37,15 @@ export async function GET(
     nodesQuery += ` AND created_at > NOW() - INTERVAL '${timeInterval}'`;
   }
 
-  // Add search filter
+  // Add search filter (ILIKE is Postgres-native, no conversion needed)
   if (search) {
-    nodesQuery += ` AND (name ILIKE $${nodesArgs.length + 1} OR definition ILIKE $${nodesArgs.length + 1})`;
-    nodesArgs.push(`%${search}%`);
+    nodesQuery += ' AND (name ILIKE ? OR definition ILIKE ?)';
+    nodesArgs.push(`%${search}%`, `%${search}%`);
   }
 
   // Add source note filter
   if (sourceNoteId) {
-    nodesQuery += ` AND id IN (SELECT node_id FROM node_note_map WHERE note_file_id = $${nodesArgs.length + 1})`;
+    nodesQuery += ' AND id IN (SELECT node_id FROM node_note_map WHERE note_file_id = ?)';
     nodesArgs.push(sourceNoteId);
   }
 

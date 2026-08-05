@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
   if (existing?.content_hash === contentHash) {
     // Update device last_sync_at even if content unchanged
-    await execute('UPDATE devices SET last_sync_at = datetime(\'now\') WHERE id = ?', [device.id]);
+    await execute('UPDATE devices SET last_sync_at = NOW() WHERE id = ?', [device.id]);
     return NextResponse.json({ message: 'Content unchanged — skipped', reprocessed: false });
   }
 
@@ -83,14 +83,14 @@ export async function POST(request: NextRequest) {
   const previousHash = existing?.content_hash ?? null;
   if (existing) {
     await execute(
-      'UPDATE note_files SET content_hash = ?, source = \'watcher\', updated_at = datetime(\'now\') WHERE id = ?',
+      "UPDATE note_files SET content_hash = ?, source = 'watcher', updated_at = NOW() WHERE id = ?",
       [contentHash, existing.id]
     );
     noteFileId = existing.id;
   } else {
     noteFileId = generateId();
     await execute(
-      'INSERT INTO note_files (id, subject_id, filename, content_hash, source, created_at, updated_at) VALUES (?, ?, ?, ?, \'watcher\', datetime(\'now\'), datetime(\'now\'))',
+      "INSERT INTO note_files (id, subject_id, filename, content_hash, source, created_at, updated_at) VALUES (?, ?, ?, ?, 'watcher', NOW(), NOW())",
       [noteFileId, subjectId, effectiveFilename, contentHash]
     );
   }
@@ -98,12 +98,12 @@ export async function POST(request: NextRequest) {
   // Store version
   const versionId = generateId();
   await execute(
-    'INSERT INTO note_versions (id, note_file_id, content, created_at) VALUES (?, ?, ?, datetime(\'now\'))',
+    'INSERT INTO note_versions (id, note_file_id, content, created_at) VALUES (?, ?, ?, NOW())',
     [versionId, noteFileId, content]
   );
 
   // Update device sync timestamp
-  await execute('UPDATE devices SET last_sync_at = datetime(\'now\') WHERE id = ?', [device.id]);
+  await execute('UPDATE devices SET last_sync_at = NOW() WHERE id = ?', [device.id]);
 
   // Run AI pipeline
   try {
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       await execute('DELETE FROM note_files WHERE id = ?', [noteFileId]);
     } else if (previousHash) {
       await execute(
-        'UPDATE note_files SET content_hash = ?, updated_at = datetime(\'now\') WHERE id = ?',
+        'UPDATE note_files SET content_hash = ?, updated_at = NOW() WHERE id = ?',
         [previousHash, noteFileId]
       );
     }
@@ -151,11 +151,11 @@ export async function DELETE(request: NextRequest) {
   // We do NOT delete graph nodes or cards — per AppFlow §7:
   // "concepts may be referenced elsewhere" — keep derived content, just mark the file.
   await execute(
-    'UPDATE note_files SET updated_at = datetime(\'now\'), source = \'watcher-deleted\' WHERE subject_id = ? AND filename = ?',
+    "UPDATE note_files SET updated_at = NOW(), source = 'watcher-deleted' WHERE subject_id = ? AND filename = ?",
     [subjectId, filename]
   );
 
-  await execute('UPDATE devices SET last_sync_at = datetime(\'now\') WHERE id = ?', [device.id]);
+  await execute('UPDATE devices SET last_sync_at = NOW() WHERE id = ?', [device.id]);
 
   return NextResponse.json({ success: true, message: 'Note soft-deleted; graph and cards preserved' });
 }

@@ -223,18 +223,18 @@ function renderMarkdown(content: string): string {
     gfm: true,
     breaks: true,
     renderer: {
-      link(href: string, title: string | null, text: string) {
+      link({ href, title, text }: { href: string; title: string | null; text: string }) {
         if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
         const safeHref = href.replace(/"/g, '&quot;');
         const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
         return `<a href="${safeHref}"${safeTitle}>${text}</a>`;
       },
-      image(href: string, title: string | null, text: string) {
+      image({ href, title, text }: { href: string; title: string | null; text: string }) {
         if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
         const safeSrc = href.replace(/"/g, '&quot;');
         const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
         return `<img src="${safeSrc}" alt="${text.replace(/"/g, '&quot;')}"${safeTitle}>`;
       },
-    },
+    } as any,
   }) as string;
 }

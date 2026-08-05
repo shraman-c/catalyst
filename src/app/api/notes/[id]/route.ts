@@ -32,7 +32,7 @@ export async function GET(
       [params.id]
     ),
     queryAll(
-      'SELECT * FROM flashcards WHERE note_file_id = ? AND status != "deleted" ORDER BY created_at DESC',
+      'SELECT * FROM flashcards WHERE note_file_id = ? AND status != \'deleted\' ORDER BY created_at DESC',
       [params.id]
     ),
   ]);

@@ -20,8 +20,8 @@ export async function GET() {
         const [noteCount, nodeCount, cardCount, cardsDue, lastSync] = await Promise.all([
           queryOne<{ c: number }>('SELECT COUNT(*) as c FROM note_files WHERE subject_id = ?', [s.id]),
           queryOne<{ c: number }>('SELECT COUNT(*) as c FROM graph_nodes WHERE subject_id = ?', [s.id]),
-          queryOne<{ c: number }>('SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != "deleted"', [s.id]),
-          queryOne<{ c: number }>('SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != "deleted" AND (next_review_at IS NULL OR next_review_at <= datetime("now"))', [s.id]),
+          queryOne<{ c: number }>("SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != 'deleted'", [s.id]),
+          queryOne<{ c: number }>("SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != 'deleted' AND (next_review_at IS NULL OR next_review_at <= NOW())", [s.id]),
           queryOne<{ t: string | null }>('SELECT MAX(updated_at) as t FROM note_files WHERE subject_id = ?', [s.id]),
         ]);
         return {
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     const id = generateId();
     const ok = await execute(
-      "INSERT INTO subjects (id, user_id, name, description, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+      "INSERT INTO subjects (id, user_id, name, description, created_at) VALUES (?, ?, ?, ?, NOW())",
       [id, session.id, name.trim(), description?.trim() || null]
     );
     if (!ok) {

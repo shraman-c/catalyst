@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne, execute, generateId } from '@/lib/db';
 import { deleteEmbedding, cardsNamespace } from '@/lib/ai/vector';
-import type { InValue } from '@libsql/client';
 import type { Flashcard, Subject } from '@/lib/types';
 
 export async function GET(
@@ -30,12 +29,12 @@ export async function GET(
   );
   const dailyCap = prefs?.card_density ?? 20;
 
-  let sql = 'SELECT * FROM flashcards WHERE subject_id = ? AND status != "deleted"';
-  const args: InValue[] = [params.subjectId];
+  let sql = "SELECT * FROM flashcards WHERE subject_id = ? AND status != 'deleted'";
+  const args: any[] = [params.subjectId];
 
   if (mode === 'due') {
     // Due = already-reviewed cards whose interval has elapsed
-    sql += ' AND status != "new" AND (next_review_at IS NULL OR next_review_at <= datetime("now"))';
+    sql += " AND status != 'new' AND (next_review_at IS NULL OR next_review_at <= NOW())";
     sql += ' ORDER BY CASE WHEN next_review_at IS NULL THEN 0 ELSE 1 END, next_review_at ASC LIMIT 200';
     const dueCards = await queryAll<Flashcard>(sql, args);
 
@@ -60,12 +59,12 @@ export async function GET(
 
     return NextResponse.json({ cards: [...newCards, ...dueCards], daily_cap: dailyCap });
   } else if (mode === 'new') {
-    sql += ' AND status = "new"';
+    sql += " AND status = 'new'";
     sql += ' ORDER BY created_at ASC LIMIT 200';
   } else if (mode === 'deleted') {
-    sql = 'SELECT * FROM flashcards WHERE subject_id = ? AND status = "deleted" ORDER BY updated_at DESC LIMIT 200';
+    sql = "SELECT * FROM flashcards WHERE subject_id = ? AND status = 'deleted' ORDER BY updated_at DESC LIMIT 200";
   } else {
-    sql += ' ORDER BY CASE WHEN status = "new" THEN 0 ELSE 1 END, next_review_at ASC, created_at DESC LIMIT 200';
+    sql += " ORDER BY CASE WHEN status = 'new' THEN 0 ELSE 1 END, next_review_at ASC, created_at DESC LIMIT 200";
   }
 
   const cards = await queryAll<Flashcard>(sql, args);
@@ -91,7 +90,7 @@ export async function PATCH(
 
   if (action === 'edit') {
     await execute(
-      'UPDATE flashcards SET front = ?, back = ?, status = "edited", updated_at = datetime("now") WHERE id = ? AND subject_id = ?',
+      "UPDATE flashcards SET front = ?, back = ?, status = 'edited', updated_at = NOW() WHERE id = ? AND subject_id = ?",
       [front, back, card_id, params.subjectId]
     );
   }
@@ -100,13 +99,13 @@ export async function PATCH(
     if (card_id) {
       // Accept a single card
       await execute(
-        'UPDATE flashcards SET status = "accepted", updated_at = datetime("now") WHERE id = ? AND subject_id = ? AND status = "new"',
+        "UPDATE flashcards SET status = 'accepted', updated_at = NOW() WHERE id = ? AND subject_id = ? AND status = 'new'",
         [card_id, params.subjectId]
       );
     } else {
       // Bulk accept all new cards for this subject
       await execute(
-        'UPDATE flashcards SET status = "accepted", updated_at = datetime("now") WHERE subject_id = ? AND status = "new"',
+        "UPDATE flashcards SET status = 'accepted', updated_at = NOW() WHERE subject_id = ? AND status = 'new'",
         [params.subjectId]
       );
     }
@@ -114,7 +113,7 @@ export async function PATCH(
 
   if (action === 'delete') {
     await execute(
-      'UPDATE flashcards SET status = "deleted", updated_at = datetime("now") WHERE id = ? AND subject_id = ?',
+      "UPDATE flashcards SET status = 'deleted', updated_at = NOW() WHERE id = ? AND subject_id = ?",
       [card_id, params.subjectId]
     );
     // Remove the card's embedding so it can't suppress future (legitimately new) cards in dedup
@@ -140,19 +139,19 @@ export async function PATCH(
 
     await execute(
       `UPDATE flashcards SET
-        status = CASE WHEN status = "new" THEN "accepted" ELSE status END,
+        status = CASE WHEN status = 'new' THEN 'accepted' ELSE status END,
         next_review_at = ?,
         interval = ?,
         ease_factor = ?,
         review_count = review_count + 1,
-        updated_at = datetime("now")
+        updated_at = NOW()
        WHERE id = ? AND subject_id = ?`,
       [nextReviewDate.toISOString(), newInterval, newEaseFactor, card_id, params.subjectId]
     );
 
     const historyId = generateId();
     await execute(
-      "INSERT INTO review_history (id, card_id, user_id, rating, reviewed_at, next_review_at, interval, ease_factor) VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?)",
+      "INSERT INTO review_history (id, card_id, user_id, rating, reviewed_at, next_review_at, interval, ease_factor) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?)",
       [historyId, card_id, session.id, rating, nextReviewDate.toISOString(), newInterval, newEaseFactor]
     );
   }
