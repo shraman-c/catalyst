@@ -2,6 +2,7 @@
 const fs = require('fs');
 const postgres = require('postgres');
 const { randomUUID } = require('crypto');
+const { hash: argon2Hash } = require('@node-rs/argon2');
 
 // Load .env.local manually
 const lines = fs.readFileSync('.env.local', 'utf8').split(/\r?\n/);
@@ -16,16 +17,9 @@ const sql = postgres(process.env.DATABASE_URL, { connect_timeout: 15 });
 function id() { return randomUUID(); }
 const now = () => new Date().toISOString();
 
-function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'synthesizer-salt');
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data[i];
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36) + data.length.toString(36);
+// Matches src/lib/auth.ts hashPassword: Argon2id PHC string
+async function hashPassword(password) {
+  return argon2Hash(password);
 }
 
 const USER_ID = id();
@@ -74,7 +68,7 @@ const flashcards = [
 async function seed() {
   console.log('🌱 Seeding Supabase database...\n');
 
-  const passwordHash = hashPassword('password123');
+  const passwordHash = await hashPassword('password123');
   await sql`INSERT INTO users (id, email, name, password_hash, created_at) VALUES (${USER_ID}, 'student@example.com', 'Alex Chen', ${passwordHash}, ${now()}) ON CONFLICT (email) DO NOTHING`;
   console.log('✅ User created: student@example.com / password123');
 

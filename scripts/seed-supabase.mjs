@@ -1,23 +1,16 @@
 import './load-env.mjs';
 import postgres from 'postgres';
 import { randomUUID } from 'crypto';
+import { hash as argon2Hash } from '@node-rs/argon2';
 
 const sql = postgres(process.env.DATABASE_URL);
 
 function id() { return randomUUID(); }
 const now = () => new Date().toISOString();
 
-// Simple password hash matching the app's hashPassword function
-function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'synthesizer-salt');
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data[i];
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36) + data.length.toString(36);
+// Matches src/lib/auth.ts hashPassword: Argon2id PHC string
+async function hashPassword(password) {
+  return argon2Hash(password);
 }
 
 // Test data
@@ -117,7 +110,7 @@ async function seed() {
   console.log('🌱 Seeding Supabase database...\n');
 
   // 1. Create user with proper password hash
-  const passwordHash = hashPassword('password123');
+  const passwordHash = await hashPassword('password123');
   await sql`INSERT INTO users (id, email, name, password_hash, created_at) VALUES (${USER_ID}, 'student@example.com', 'Alex Chen', ${passwordHash}, ${now()}) ON CONFLICT (email) DO NOTHING`;
   console.log('✅ User created: student@example.com / password123');
 

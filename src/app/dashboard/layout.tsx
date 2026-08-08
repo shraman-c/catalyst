@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           CATALYST
         </Link>
 
-        <div className="flex gap-4 items-center" style={{ marginLeft: '40px' }} id="nav-links-desktop">
+        <div className="flex gap-4 items-center hide-on-mobile" style={{ marginLeft: '40px' }} id="nav-links-desktop">
           <Link href="/dashboard" className="nav-link" id="nav-dashboard">
             DASHBOARD
           </Link>

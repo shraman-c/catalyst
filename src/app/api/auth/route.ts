@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createUser, findUserByEmail, hashPassword, createSession, COOKIE_NAME_EXPORT, SENTINEL_PASSWORD_HASH } from '@/lib/auth';
+import { createUser, findUserByEmail, verifyPassword, migrateLegacyPasswordHash, createSession, COOKIE_NAME_EXPORT, SENTINEL_PASSWORD_HASH } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   const { action, email, password, name } = await request.json();
@@ -36,10 +36,15 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-    const hashedInput = await hashPassword(password);
-    if (!dbUser || dbUser.password_hash !== hashedInput) {
+    if (!dbUser) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
+    const valid = await verifyPassword(password, dbUser.password_hash);
+    if (!valid) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
+    // Legacy SHA-256 accounts upgrade to argon2 on their next successful login.
+    await migrateLegacyPasswordHash(dbUser.id, password, dbUser.password_hash);
 
     const user = { id: dbUser.id as string, email: dbUser.email as string, name: dbUser.name as string | null };
     const token = await createSession(user);

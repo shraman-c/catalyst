@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
     "@pinecone-database/pinecone": "^8.2.0",
     "jose": "^5.9.6",
     "marked": "^12.0.0",

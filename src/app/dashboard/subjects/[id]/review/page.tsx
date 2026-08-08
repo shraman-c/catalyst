@@ -129,7 +129,7 @@ export default function ReviewPage() {
           </div>
 
           {/* Card type tag */}
-          <div className="flex gap-2 items-center" style={{ marginBottom: '12px' }}>
+          <div className="flex gap-2 items-center" style={{ marginBottom: '12px', flexWrap: 'wrap' }}>
             <span className="mono-tag">{currentCard.card_type === 'cloze' ? 'FILL IN THE BLANK' : 'QUESTION & ANSWER'}</span>
             {currentCard.status === 'new' && <span className="mono-tag mono-tag-signal">NEW</span>}
             {currentCard.review_count > 0 && (
@@ -155,7 +155,7 @@ export default function ReviewPage() {
             {/* Answer reveal */}
             {revealed ? (
               <>
-                <div className="divider-ink" style={{ margin: '0 -40px 24px' }} />
+                <div className="divider-ink" style={{ margin: '0 calc(-1 * var(--card-pad)) 24px' }} />
                 <div>
                   <div className="mono-tag" style={{ marginBottom: '12px' }}>ANSWER</div>
                   <p className="text-body" style={{ fontSize: '18px', lineHeight: 1.5 }}>
@@ -314,7 +314,7 @@ function NothingDue({ subjectId }: { subjectId: string }) {
 
 function SessionSummary({ reviewed, subjectId, subjectName }: { reviewed: number; subjectId: string; subjectName: string }) {
   return (
-    <div className="bento-tile shadow-hard-lg" style={{ textAlign: 'center', padding: '48px 40px' }}>
+    <div className="bento-tile shadow-hard-lg" style={{ textAlign: 'center', padding: 'clamp(28px, 6vw, 48px) clamp(16px, 5vw, 40px)' }}>
       <div className="stat-block" style={{ alignItems: 'center', marginBottom: '20px' }}>
         <span className="stat-block__number">{reviewed}</span>
         <span className="stat-block__label">CARDS REVIEWED</span>

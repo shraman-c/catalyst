@@ -1,5 +1,8 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+// Argon2id (prebuilt native binary, @node-rs/argon2) — kept external to
+// webpack via serverExternalPackages in next.config.js.
+import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
 import { queryOne, execute, generateId, initializeSchema } from './db';
 import type { SessionUser } from './types';
 
@@ -84,18 +87,61 @@ async function ensureUserRow(user: SessionUser): Promise<void> {
   );
 }
 
+// Argon2id with OWASP-recommended parameters (memory 19 MiB, 2 iterations).
+const ARGON2_OPTIONS = { memoryCost: 19456, timeCost: 2, parallelism: 1 };
+
 /**
- * Hash a password using SHA-256. Returns a hex-encoded hash.
- * This is a significant improvement over the previous DJB2 hash but for
- * production use, consider migrating to bcrypt or argon2.
+ * Hash a password with Argon2id. Output is a PHC-format string
+ * (e.g. $argon2id$v=19$m=19456,t=2,p=1$...) with a random salt —
+ * two hashes of the same password are never equal.
  */
 export async function hashPassword(password: string): Promise<string> {
+  return argon2Hash(password, ARGON2_OPTIONS);
+}
+
+/**
+ * Legacy pre-argon2 hashes were SHA-256 hex digests (64 lowercase hex chars)
+ * of `password + 'synthesizer-salt-v2'`. Detect them so existing accounts
+ * still log in and can be upgraded to argon2 in place.
+ */
+function isLegacySha256Hash(storedHash: string): boolean {
+  return /^[0-9a-f]{64}$/.test(storedHash);
+}
+
+async function verifyLegacySha256(password: string, storedHash: string): Promise<boolean> {
   const encoder = new TextEncoder();
   const data = encoder.encode(password + 'synthesizer-salt-v2');
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
+  const hex = Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+  return hex === storedHash;
+}
+
+/**
+ * Verify a password against a stored hash. Handles both argon2 PHC hashes
+ * and legacy SHA-256 hashes (returns true for a match, so login works).
+ */
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (isLegacySha256Hash(storedHash)) {
+    return verifyLegacySha256(password, storedHash);
+  }
+  try {
+    return await argon2Verify(storedHash, password);
+  } catch {
+    // Malformed/unknown hash format (e.g. the sentinel) — never authenticates.
+    return false;
+  }
+}
+
+/**
+ * Upgrade a legacy SHA-256 hash to argon2 in place. Call after a successful
+ * legacy verification so the account moves to the strong hash on next login.
+ */
+export async function migrateLegacyPasswordHash(userId: string, password: string, currentHash: string): Promise<void> {
+  if (!isLegacySha256Hash(currentHash)) return;
+  const newHash = await hashPassword(password);
+  await execute('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId]);
 }
 
 export async function createUser(email: string, password: string, name: string) {

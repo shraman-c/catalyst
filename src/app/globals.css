@@ -510,10 +510,11 @@ body {
 
 /* --- 14. Flashcard (design.md §4.3) ----------------------- */
 .flashcard {
+  --card-pad: 40px;
   border: var(--border-thick) solid var(--ink);
   background-color: var(--surface);
   box-shadow: var(--shadow-lg-offset) var(--shadow-lg-offset) 0 0 var(--ink);
-  padding: 40px;
+  padding: var(--card-pad);
   min-height: 240px;
   display: flex;
   flex-direction: column;
@@ -785,6 +786,11 @@ body {
   margin-bottom: 12px;
   font-family: var(--font-body);
   font-size: 14px;
+  /* Wide tables scroll horizontally on small screens instead of
+     blowing out their container (same treatment as code blocks). */
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
 }
 
 .markdown-content th,
@@ -831,6 +837,8 @@ body {
   padding: clamp(16px, 4vw, 40px) clamp(16px, 5vw, 48px);
   max-width: 1400px;
   width: 100%;
+  /* Center on ultra-wide screens instead of pinning left */
+  margin-inline: auto;
 }
 
 /* Page header: title + action button side-by-side, wraps on mobile */
@@ -928,12 +936,9 @@ body {
 }
 
 /* On narrow screens collapse all grid rows to stacked */
-@media (max-width: 640px) {
-  .data-row-grid {
-    grid-template-columns: 1fr !important;
-  }
-
-  /* Nav: compress links */
+/* Nav first needs wrapping at 768px — the bottom nav only appears at
+   640px, so between 641–768px the full top nav must fit by wrapping. */
+@media (max-width: 768px) {
   .nav-bar {
     padding: 0 12px;
     gap: 10px;
@@ -951,6 +956,12 @@ body {
   .nav-link {
     font-size: 11px;
   }
+}
+
+@media (max-width: 640px) {
+  .data-row-grid {
+    grid-template-columns: 1fr !important;
+  }
 
   /* Page padding */
   .page-container {
@@ -964,7 +975,8 @@ body {
 
   /* Flashcard review */
   .flashcard {
-    padding: 20px;
+    --card-pad: 20px;
+    padding: var(--card-pad);
     min-height: 160px;
   }
 
@@ -1270,5 +1282,64 @@ body {
   .toast {
     background-color: var(--surface);
     border-color: var(--ink);
+  }
+}
+
+/* ============================================================
+   35. Landing page feature bento (3-up, collapses to 1 column)
+   ============================================================ */
+.bento-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 768px) {
+  .bento-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   36. Graph layout (canvas + side panel) — collapses to a
+   single stacked column on tablet/mobile
+   ============================================================ */
+.graph-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  border: var(--border-thick) solid var(--ink);
+}
+
+.graph-layout .graph-container {
+  border-right: var(--border-thick) solid var(--ink);
+}
+
+.graph-layout .side-panel {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .graph-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-layout .graph-container {
+    border-right: none;
+    border-bottom: var(--border-thick) solid var(--ink);
+  }
+
+  .graph-layout .side-panel {
+    max-height: 40vh;
+    /* The canvas's own bottom border separates the two sections;
+       dropping the panel's top border avoids a chunky 8px seam. */
+    border-top: none;
+  }
+}
+
+/* ============================================================
+   37. Empty state — tighter padding on small screens
+   ============================================================ */
+@media (max-width: 640px) {
+  .empty-state {
+    padding: 28px 16px;
   }
 }

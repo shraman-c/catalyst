@@ -50,10 +50,10 @@ export default function NoteDetailPage() {
   }
 
   return (
-    <div style={{ padding: '32px 40px' }}>
+    <div className="page-container">
 
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2" style={{ marginBottom: '16px' }}>
+      <div className="flex items-center gap-2" style={{ marginBottom: '16px', flexWrap: 'wrap' }}>
         <Link href="/dashboard" className="text-mono" style={{ opacity: 0.6, textDecoration: 'none' }}>DASHBOARD</Link>
         <span className="text-mono" style={{ opacity: 0.4 }}>›</span>
         <Link href={`/dashboard/subjects/${subjectId}`} className="text-mono" style={{ opacity: 0.6, textDecoration: 'none' }}>SUBJECT</Link>
@@ -72,8 +72,8 @@ export default function NoteDetailPage() {
           {/* Note header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', gap: '16px', flexWrap: 'wrap' }}>
             <div>
-              <h1 className="text-display-md">{data.note.filename}</h1>
-              <div className="flex gap-2" style={{ marginTop: '8px' }}>
+              <h1 className="text-display-md" style={{ overflowWrap: 'anywhere' }}>{data.note.filename}</h1>
+              <div className="flex gap-2" style={{ marginTop: '8px', flexWrap: 'wrap' }}>
                 <span className="mono-tag">{data.note.source.toUpperCase()}</span>
                 <span className="mono-tag">{new Date(data.note.updated_at).toLocaleDateString()}</span>
                 <span className="mono-tag">{data.concepts.length} CONCEPTS</span>
@@ -107,7 +107,7 @@ export default function NoteDetailPage() {
           </div>
 
           {/* Tab bar */}
-          <div style={{ display: 'flex', border: '3px solid var(--ink)', marginBottom: '20px', width: 'fit-content' }}>
+          <div style={{ display: 'flex', border: '3px solid var(--ink)', marginBottom: '20px', width: 'fit-content', maxWidth: '100%', flexWrap: 'wrap' }}>
             {[
               { key: 'rendered', label: 'RENDERED' },
               { key: 'raw', label: 'RAW' },

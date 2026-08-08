@@ -244,7 +244,7 @@ function LandingHero({ onGetStarted, onLogin }: { onGetStarted: () => void; onLo
       {/* Hero */}
       <div style={{
         borderBottom: '4px solid var(--ink)',
-        padding: '80px 40px 60px',
+        padding: 'clamp(48px, 9vw, 80px) clamp(16px, 5vw, 40px) clamp(40px, 8vw, 60px)',
         display: 'flex',
         flexDirection: 'column',
         gap: '24px',
@@ -275,8 +275,8 @@ function LandingHero({ onGetStarted, onLogin }: { onGetStarted: () => void; onLo
       </div>
 
       {/* Feature bento */}
-      <div style={{ padding: '40px', backgroundColor: 'var(--base)' }}>
-        <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+      <div style={{ padding: 'clamp(24px, 5vw, 40px)', backgroundColor: 'var(--base)' }}>
+        <div className="bento-grid bento-grid-3">
 
           <div className="bento-tile" style={{ gridColumn: 'span 1' }}>
             <div className="mono-tag" style={{ marginBottom: '16px' }}>01</div>
@@ -305,7 +305,7 @@ function LandingHero({ onGetStarted, onLogin }: { onGetStarted: () => void; onLo
         </div>
 
         {/* How it works */}
-        <div style={{ marginTop: '40px', border: '4px solid var(--ink)', padding: '32px', backgroundColor: 'var(--surface)' }}>
+        <div style={{ marginTop: '40px', border: '4px solid var(--ink)', padding: 'clamp(20px, 4vw, 32px)', backgroundColor: 'var(--surface)' }}>
           <h2 className="text-display-md" style={{ marginBottom: '24px' }}>HOW IT WORKS</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
             {[
