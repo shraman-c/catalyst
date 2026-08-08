@@ -13,6 +13,7 @@ export default function HomePage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const { resolvedTheme, toggleTheme } = useTheme();
 
   async function handleAuth(e: React.FormEvent) {
@@ -24,7 +25,7 @@ export default function HomePage() {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: mode, email, password, name }),
+        body: JSON.stringify({ action: mode, email, password, name, remember: mode === 'signup' ? true : rememberMe }),
       });
 
       const data = await res.json();
@@ -209,6 +210,32 @@ export default function HomePage() {
                     </button>
                   </div>
                 </div>
+
+                {mode === 'login' && (
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      marginTop: '4px',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      id="auth-remember"
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        accentColor: 'var(--signal)',
+                        cursor: 'pointer',
+                      }}
+                    />
+                    <span className="text-mono" style={{ opacity: 0.7, fontSize: '12px' }}>REMEMBER ME</span>
+                  </label>
+                )}
 
                 <button
                   className="btn btn-primary"

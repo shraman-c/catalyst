@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createUser, findUserByEmail, verifyPassword, migrateLegacyPasswordHash, createSession, COOKIE_NAME_EXPORT, SENTINEL_PASSWORD_HASH } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
-  const { action, email, password, name } = await request.json();
+  const { action, email, password, name, remember } = await request.json();
+
+  // Cookie options: persistent (30 days) when "Remember Me" is on, session-only otherwise.
+  const cookieOptions: Record<string, any> = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+  };
+  if (remember !== false) {
+    cookieOptions.maxAge = 60 * 60 * 24 * 30; // 30 days
+  }
 
   if (!email || !password) {
     return NextResponse.json({ error: 'Email and password required' }, { status: 400 });
@@ -16,13 +27,7 @@ export async function POST(request: NextRequest) {
 
     const token = await createSession(user);
     const response = NextResponse.json({ success: true, user });
-    response.cookies.set(COOKIE_NAME_EXPORT, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30,
-      path: '/',
-    });
+    response.cookies.set(COOKIE_NAME_EXPORT, token, cookieOptions);
     return response;
   }
 
@@ -49,13 +54,7 @@ export async function POST(request: NextRequest) {
     const user = { id: dbUser.id as string, email: dbUser.email as string, name: dbUser.name as string | null };
     const token = await createSession(user);
     const response = NextResponse.json({ success: true, user });
-    response.cookies.set(COOKIE_NAME_EXPORT, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30,
-      path: '/',
-    });
+    response.cookies.set(COOKIE_NAME_EXPORT, token, cookieOptions);
     return response;
   }
 
