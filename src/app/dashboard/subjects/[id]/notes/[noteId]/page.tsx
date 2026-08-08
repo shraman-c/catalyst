@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { marked } from 'marked';
+import { marked, Marked } from 'marked';
 
 interface NoteDetail {
   note: { id: string; filename: string; source: string; updated_at: string };
@@ -214,27 +214,32 @@ export default function NoteDetailPage() {
 
 const UNSAFE_PROTOCOL = /^(javascript|vbscript|data|file):/i;
 
+// Dedicated Marked instance with sanitised renderer overrides (v12 API).
+const md = new Marked();
+md.use({
+  gfm: true,
+  breaks: true,
+  renderer: {
+    link({ href, title, tokens }) {
+      const text = this.parser.parseInline(tokens);
+      if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
+      const safeHref = href.replace(/"/g, '&quot;');
+      const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+      return `<a href="${safeHref}"${safeTitle}>${text}</a>`;
+    },
+    image({ href, title, text }) {
+      if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
+      const safeSrc = href.replace(/"/g, '&quot;');
+      const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+      return `<img src="${safeSrc}" alt="${(text || '').replace(/"/g, '&quot;')}"${safeTitle}>`;
+    },
+  },
+});
+
 function renderMarkdown(content: string): string {
   // Escape raw HTML so notes can't inject markup (`>` is kept so blockquote syntax
   // still parses; `<` alone can't open a tag). Unsafe link/image protocols are
-  // dropped in the renderer overrides below (marked v12 no longer strips them).
+  // dropped in the renderer overrides above (marked v12 no longer strips them).
   const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  return marked.parse(escaped, {
-    gfm: true,
-    breaks: true,
-    renderer: {
-      link({ href, title, text }: { href: string; title: string | null; text: string }) {
-        if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
-        const safeHref = href.replace(/"/g, '&quot;');
-        const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
-        return `<a href="${safeHref}"${safeTitle}>${text}</a>`;
-      },
-      image({ href, title, text }: { href: string; title: string | null; text: string }) {
-        if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
-        const safeSrc = href.replace(/"/g, '&quot;');
-        const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
-        return `<img src="${safeSrc}" alt="${text.replace(/"/g, '&quot;')}"${safeTitle}>`;
-      },
-    } as any,
-  }) as string;
+  return md.parse(escaped) as string;
 }

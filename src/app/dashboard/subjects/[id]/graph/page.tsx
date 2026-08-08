@@ -443,7 +443,9 @@ export default function GraphPage() {
     return s;
   }, [hoveredNode, selectedNode, searchQuery, graphData, displayNeighborMap]);
 
-  const dimmingActive = !!hoveredNode || !!selectedNode || !!searchQuery.trim();
+  // Dimming only activates for selection and search — hover uses an additive
+  // glow instead of dimming unrelated nodes, which feels less disruptive.
+  const dimmingActive = !!selectedNode || !!searchQuery.trim();
 
   // Refs so the per-frame canvas renderer can read current state without
   // forcing React re-renders during the simulation.
@@ -945,53 +947,90 @@ export default function GraphPage() {
                 const x = node.x ?? 0;
                 const y = node.y ?? 0;
 
-                const isHovered = hoveredRef.current === node.id;
+                const currentHovered = hoveredRef.current;
+                const isHovered = currentHovered === node.id;
+                const isNeighborOfHovered = currentHovered ? displayNeighborMap.get(currentHovered)?.has(node.id) : false;
                 const isSelected = selectedRef.current?.id === node.id;
                 const isHighlighted = highlightSetRef.current.has(node.id);
                 const dim = dimmingRef.current && !isHighlighted && !isHovered;
 
-                // Hover/focus de-clutter: brighten the neighborhood, dim the rest
+                // Selection/search dims unrelated nodes; hover does NOT dim.
                 ctx.globalAlpha = dim ? 0.22 : 1;
 
-                // Soft flat filled circle — no border by default
+                // Soft glow halo behind the hovered node — additive highlight
+                if (isHovered) {
+                  const glowR = r + 12 / globalScale;
+                  const grad = ctx.createRadialGradient(x, y, r * 0.5, x, y, glowR);
+                  const baseColor = node.__isCluster
+                    ? themeColors.fg
+                    : CATEGORY_COLORS[categoryIndex(node.name || '?')];
+                  grad.addColorStop(0, baseColor + '60');
+                  grad.addColorStop(0.6, baseColor + '20');
+                  grad.addColorStop(1, baseColor + '00');
+                  ctx.beginPath();
+                  ctx.arc(x, y, glowR, 0, Math.PI * 2);
+                  ctx.fillStyle = grad;
+                  ctx.fill();
+                }
+
+                // Slightly enlarge hovered node for tactile feedback
+                const drawR = isHovered ? r * 1.2 : r;
+
+                // Soft flat filled circle
                 ctx.beginPath();
-                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.arc(x, y, drawR, 0, Math.PI * 2);
                 ctx.fillStyle = node.__isCluster
                   ? themeColors.fg
                   : CATEGORY_COLORS[categoryIndex(node.name || '?')];
                 ctx.fill();
 
-                // Thin outer ring on hover/selection/search instead of a heavy border
+                // Ring feedback: bright ring on hover/selection, subtle ring on neighbor
                 if (isHovered || isSelected || (searchRef.current.trim() && isHighlighted)) {
                   ctx.beginPath();
-                  ctx.arc(x, y, r + 1.5, 0, Math.PI * 2);
+                  ctx.arc(x, y, drawR + 2 / globalScale, 0, Math.PI * 2);
                   ctx.strokeStyle = themeColors.fg;
-                  ctx.lineWidth = 2 / globalScale;
+                  ctx.lineWidth = 2.5 / globalScale;
                   ctx.stroke();
+                } else if (isNeighborOfHovered) {
+                  ctx.beginPath();
+                  ctx.arc(x, y, drawR + 1.5 / globalScale, 0, Math.PI * 2);
+                  ctx.strokeStyle = themeColors.fg;
+                  ctx.globalAlpha = 0.45;
+                  ctx.lineWidth = 1.5 / globalScale;
+                  ctx.stroke();
+                  ctx.globalAlpha = 1;
                 }
 
                 ctx.globalAlpha = 1;
 
-                // Label — only when this frame's collision pass allowed it
-                if (visibleLabelsRef.current.has(node.id)) {
+                // Label — always show for hovered node and its neighbors,
+                // otherwise only when the collision pass allowed it.
+                const showLabel = isHovered || isNeighborOfHovered || visibleLabelsRef.current.has(node.id);
+                if (showLabel) {
                   const label = node.__isCluster ? node.__clusterLabel || node.name : (node.name || '?');
                   const fs = Math.max(8, 11 / globalScale);
                   ctx.font = `${fs}px ${FONT_MONO}`;
                   ctx.fillStyle = themeColors.fg;
                   ctx.textAlign = 'left';
                   ctx.textBaseline = 'middle';
-                  // Cluster chip appended when zoomed in
+                  // Slightly brighter label for the hovered node
+                  if (isHovered) {
+                    ctx.globalAlpha = 1;
+                  } else if (isNeighborOfHovered) {
+                    ctx.globalAlpha = 0.85;
+                  }
                   if (node.__isCluster) {
                     const chip = `[${node.__clusterSize} CONCEPTS]`;
-                    ctx.fillText(label, x + r + 6, y - fs / 2 - 2);
+                    ctx.fillText(label, x + drawR + 6, y - fs / 2 - 2);
                     ctx.globalAlpha = 0.7;
                     ctx.font = `${Math.max(7, fs - 2)}px ${FONT_MONO}`;
-                    ctx.fillText(chip, x + r + 6, y + fs / 2 + 4);
+                    ctx.fillText(chip, x + drawR + 6, y + fs / 2 + 4);
                     ctx.globalAlpha = 1;
                   } else {
-                    ctx.fillText(label, x + r + 6, y);
+                    ctx.fillText(label, x + drawR + 6, y);
                   }
                   ctx.textAlign = 'center';
+                  ctx.globalAlpha = 1;
                 }
               }}
               nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
@@ -1017,17 +1056,26 @@ export default function GraphPage() {
                 const isHoveredLink = hoveredLinkRef.current === link.id;
                 const highlighted = highlightSetRef.current.has(String(srcId)) && highlightSetRef.current.has(String(tgtId));
 
-                // Thin, low-opacity edges — structure, not content.
-                // No arrowheads, no permanent relationship labels.
-                let alpha = 0.2;
-                if (isHoveredLink) alpha = 0.9;
-                else if (dimmingRef.current) alpha = highlighted ? 0.7 : 0.06;
+                // Is this edge connected to the hovered node?
+                const currentHovered = hoveredRef.current;
+                const touchesHovered = currentHovered
+                  ? (String(srcId) === currentHovered || String(tgtId) === currentHovered)
+                  : false;
+
+                // Visible edges — clear structure lines.
+                // Edges connected to the hovered node brighten + thicken;
+                // everything else stays normal (no dimming on hover).
+                let alpha = 0.55;
+                let lw = 1.5;
+                if (isHoveredLink) { alpha = 0.95; lw = 2.5; }
+                else if (touchesHovered) { alpha = 0.9; lw = 2.2; }
+                else if (dimmingRef.current) { alpha = highlighted ? 0.8 : 0.15; }
 
                 ctx.beginPath();
                 ctx.moveTo(x1, y1);
                 ctx.lineTo(x2, y2);
                 ctx.strokeStyle = themeColors.fg;
-                ctx.lineWidth = (isHoveredLink ? 2 : 1) / globalScale;
+                ctx.lineWidth = lw / globalScale;
                 ctx.globalAlpha = alpha;
                 ctx.stroke();
                 ctx.globalAlpha = 1;
