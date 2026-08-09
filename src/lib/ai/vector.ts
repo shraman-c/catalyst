@@ -14,7 +14,7 @@ import { Pinecone } from '@pinecone-database/pinecone';
 export const EMBED_MODEL = 'llama-text-embed-v2'; // 1024-dim, Pinecone-hosted inference
 export const EMBED_DIM = 1024;
 
-const DEFAULT_INDEX = 'synthesizer';
+const DEFAULT_INDEX = 'catalyst';
 const PINECONE_CLOUD = process.env.PINECONE_CLOUD || 'aws';
 const PINECONE_REGION = process.env.PINECONE_REGION || 'us-east-1';
 

@@ -83,7 +83,7 @@ try {
   await client.unsafe('DELETE FROM subjects WHERE id = $1', [subjectId]); // cascades notes/nodes/cards/edges
   await client.unsafe('DELETE FROM users WHERE id = $1', [userId]);
   const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
-  const name = process.env.PINECONE_INDEX || 'synthesizer';
+  const name = process.env.PINECONE_INDEX || 'catalyst';
   const existing = await pc.listIndexes();
   if (existing.indexes?.some((i) => i.name === name)) {
     const index = pc.index(name);

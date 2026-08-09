@@ -1,5 +1,5 @@
 {
-  "name": "synthesizer-watcher",
+  "name": "catalyst-watcher",
   "version": "1.0.0",
   "description": "Local file watcher for Catalyst — monitors folders and syncs note changes to the dashboard automatically.",
   "private": true,

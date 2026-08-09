@@ -92,40 +92,68 @@ export default function SubjectPage() {
     }
   }
 
-  async function handleFileUpload(file: File) {
+  async function handleFileUpload(files: FileList | File[]) {
     setUploading(true);
     setUploadError('');
     setUploadResult(null);
 
-    const formData = new FormData();
-    formData.append('subject_id', subjectId);
-    formData.append('file', file);
+    const accumulatedResult: PipelineResult = {
+      nodes_created: 0,
+      nodes_merged: 0,
+      edges_created: 0,
+      cards_created: 0,
+      cards_deduplicated: 0,
+      processing_time_ms: 0,
+    };
+    
+    let hasError = false;
+    let anySuccess = false;
 
-    try {
-      const res = await fetch('/api/notes/upload', {
-        method: 'POST',
-        body: formData,
-      });
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const formData = new FormData();
+      formData.append('subject_id', subjectId);
+      formData.append('file', file);
 
-      const result = await res.json();
-      if (!res.ok) {
-        setUploadError(result.error || result.detail || 'Upload failed');
-      } else {
-        setUploadResult(result.pipeline);
-        fetchData();
+      try {
+        const res = await fetch('/api/notes/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await res.json();
+        if (!res.ok) {
+          setUploadError(prev => (prev ? prev + '\n' : '') + `Failed ${file.name}: ${result.error || result.detail || 'Upload failed'}`);
+          hasError = true;
+        } else {
+          accumulatedResult.nodes_created += result.pipeline.nodes_created;
+          accumulatedResult.nodes_merged += result.pipeline.nodes_merged;
+          accumulatedResult.edges_created += result.pipeline.edges_created;
+          accumulatedResult.cards_created += result.pipeline.cards_created;
+          accumulatedResult.cards_deduplicated += result.pipeline.cards_deduplicated;
+          accumulatedResult.processing_time_ms += result.pipeline.processing_time_ms;
+          anySuccess = true;
+        }
+      } catch {
+        setUploadError(prev => (prev ? prev + '\n' : '') + `NETWORK ERROR for ${file.name}`);
+        hasError = true;
       }
-    } catch {
-      setUploadError('NETWORK ERROR — CHECK YOUR CONNECTION');
-    } finally {
-      setUploading(false);
     }
+
+    if (anySuccess) {
+      setUploadResult(accumulatedResult);
+      fetchData();
+    }
+    
+    setUploading(false);
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileUpload(file);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files);
+    }
   }
 
   if (loading) {
@@ -276,16 +304,17 @@ export default function SubjectPage() {
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                 <span className="text-display-md" style={{ opacity: 0.4 }}>↓</span>
                 <p className="text-body-sm" style={{ opacity: 0.7 }}>
-                  DROP A .MD OR .TXT FILE HERE
+                  DROP .MD OR .TXT FILES HERE
                 </p>
                 <span className="text-mono" style={{ opacity: 0.5 }}>OR</span>
                 <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
-                  BROWSE FILE
+                  BROWSE FILES
                   <input
                     type="file"
+                    multiple
                     accept=".md,.txt"
                     style={{ display: 'none' }}
-                    onChange={(e) => { if (e.target.files?.[0]) handleFileUpload(e.target.files[0]); }}
+                    onChange={(e) => { if (e.target.files?.length) handleFileUpload(e.target.files); }}
                     id="file-input"
                   />
                 </label>

@@ -1,4 +1,4 @@
-// Synthesizer — Shared TypeScript types (mirrors DB schema)
+// Catalyst — Shared TypeScript types (mirrors DB schema)
 
 export interface User {
   id: string;

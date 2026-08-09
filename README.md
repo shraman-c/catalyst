@@ -1,6 +1,6 @@
-# catalyst
+# Catalyst
 
-Local-to-Cloud Note Synthesizer — turns raw notes into knowledge graphs and flashcards automatically.
+Local-to-Cloud Note Catalyst — turns raw notes into knowledge graphs and flashcards automatically.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ npm run dev
 |---|---|---|
 | `GROQ_API_KEY` | ✅ | LLM text generation (concept extraction, graph merge, flashcard generation) via the [Groq API](https://console.groq.com/keys) |
 | `PINECONE_API_KEY` | ✅ | Vector storage + embeddings via Pinecone inference (`voyage-3-lite`). Create at [app.pinecone.io](https://app.pinecone.io) |
-| `PINECONE_INDEX` | – | Index name (default `synthesizer`; created automatically on first use) |
+| `PINECONE_INDEX` | – | Index name (default `catalyst`; created automatically on first use) |
 | `DATABASE_URL` | ✅ | Supabase Postgres connection string |
 | `NEXTAUTH_SECRET` | ✅ | Session signing secret (32+ chars) |
 | `NEXTAUTH_URL` | ✅ | App URL (e.g. `http://localhost:3000`) |

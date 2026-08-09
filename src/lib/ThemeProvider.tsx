@@ -20,7 +20,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Load saved theme from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('synthesizer-theme') as Theme | null;
+    const saved = localStorage.getItem('catalyst-theme') as Theme | null;
     if (saved && ['light', 'dark', 'system'].includes(saved)) {
       setThemeState(saved);
     }
@@ -56,7 +56,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
-    localStorage.setItem('synthesizer-theme', newTheme);
+    localStorage.setItem('catalyst-theme', newTheme);
   };
 
   const toggleTheme = () => {

@@ -287,7 +287,7 @@ function LandingHero({ onGetStarted, onLogin }: { onGetStarted: () => void; onLo
         </h1>
 
         <p className="text-body" style={{ maxWidth: '560px', opacity: 0.8, fontSize: '18px' }}>
-          Write in any editor. Save the file. Synthesizer turns your raw notes into a knowledge graph
+          Write in any editor. Save the file. Catalyst turns your raw notes into a knowledge graph
           and active-recall flashcards — no manual formatting, no card-writing, no separate step.
         </p>
 

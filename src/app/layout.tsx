@@ -31,7 +31,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             try {
-              var theme = localStorage.getItem('synthesizer-theme');
+              var theme = localStorage.getItem('catalyst-theme');
               if (theme === 'dark' || theme === 'light') {
                 document.documentElement.classList.add(theme);
                 document.documentElement.setAttribute('data-theme', theme);

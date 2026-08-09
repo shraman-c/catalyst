@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useSyncManager, queueSyncAction } from '@/lib/sync/SyncManager';
 
 interface Flashcard {
   id: string;
@@ -23,6 +24,7 @@ export default function ReviewPage() {
   const params = useParams();
   const router = useRouter();
   const subjectId = params.id as string;
+  useSyncManager();
 
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,11 +69,7 @@ export default function ReviewPage() {
     if (!currentCard) return;
     setRating(r);
 
-    await fetch(`/api/cards/${subjectId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'review', card_id: currentCard.id, rating: r }),
-    });
+    await queueSyncAction('review', subjectId, { action: 'review', card_id: currentCard.id, rating: r });
 
     // Advance after a brief moment
     setTimeout(() => {
@@ -179,10 +177,10 @@ export default function ReviewPage() {
           {revealed && (
             <div className="rating-row" style={{ marginTop: '16px' }}>
               {[
-                { label: 'AGAIN', key: 'again', cls: 'btn-rating-again' },
-                { label: 'HARD', key: 'hard', cls: 'btn-rating-hard' },
-                { label: 'GOOD', key: 'good', cls: 'btn-rating-good' },
                 { label: 'EASY', key: 'easy', cls: 'btn-rating-easy' },
+                { label: 'GOOD', key: 'good', cls: 'btn-rating-good' },
+                { label: 'HARD', key: 'hard', cls: 'btn-rating-hard' },
+                { label: 'AGAIN', key: 'again', cls: 'btn-rating-again' },
               ].map(({ label, key, cls }) => (
                 <button
                   key={key}
@@ -215,11 +213,7 @@ export default function ReviewPage() {
               className="btn btn-ghost"
               style={{ fontSize: '12px' }}
               onClick={async () => {
-                await fetch(`/api/cards/${subjectId}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'delete', card_id: currentCard.id }),
-                });
+                await queueSyncAction('delete', subjectId, { action: 'delete', card_id: currentCard.id });
                 setCards((prev) => prev.filter((c) => c.id !== currentCard.id));
                 setRevealed(false);
                 if (currentIndex >= cards.length - 1) setSessionComplete(true);
@@ -275,17 +269,7 @@ export default function ReviewPage() {
                 onClick={async () => {
                   if (!editingCard) return;
                   setSavingEdit(true);
-                  // Update card in local state only on server success — a 400
-                  // from validation must not silently pretend the edit saved.
-                  const editRes = await fetch(`/api/cards/${subjectId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'edit', card_id: editingCard.id, front: editFront, back: editBack }),
-                  });
-                  if (!editRes.ok) {
-                    setSavingEdit(false);
-                    return;
-                  }
+                  await queueSyncAction('edit', subjectId, { action: 'edit', card_id: editingCard.id, front: editFront, back: editBack });
                   setCards(prev => prev.map(c => c.id === editingCard.id ? { ...c, front: editFront, back: editBack } : c));
                   setSavingEdit(false);
                   setEditingCard(null);
