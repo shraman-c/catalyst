@@ -6,7 +6,7 @@
  * the review queue actually returns. Keeping the cap logic in one place (here)
  * prevents the two from drifting apart again.
  */
-import { queryOne } from './db';
+import { queryAll, queryOne } from './db';
 
 const DEFAULT_DAILY_CAP = 20;
 // Matches the review queue's hard cap on overdue cards per request.
@@ -71,4 +71,62 @@ export async function getCardsDueCount(subjectId: string, userId: string): Promi
   const newCountNum = Number(newCount?.c ?? 0);
   const newSlots = Math.max(0, dailyCap - introducedToday);
   return dueCount + Math.min(newCountNum, newSlots);
+}
+
+/**
+ * Dashboard subject rows + stats in a SINGLE query.
+ *
+ * The per-subject GET /api/subjects flow used to run 5 round-trips per subject
+ * (4 counts + this due-count helper, which itself fan out into 4 more) — on a
+ * cold serverless instance with N subjects that's 5N+1 queries. This collapses
+ * everything into one statement via correlated subselects.
+ *
+ * The due-count arithmetic below mirrors getCardsDueCount() exactly (same
+ * DUE_QUEUE_LIMIT cap and daily-cap accounting) and lives in the same module,
+ * so the two implementations cannot drift apart.
+ */
+export interface SubjectStatsRow {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  note_count: number;
+  graph_node_count: number;
+  card_count: number;
+  cards_due_today: number;
+  last_synced_at: string | null;
+}
+
+export async function getSubjectsWithStats(userId: string): Promise<SubjectStatsRow[]> {
+  const rows = await queryAll<SubjectStatsRow>(
+    `SELECT
+       s.id, s.name, s.description, s.created_at,
+       (SELECT COUNT(*)::int FROM note_files nf WHERE nf.subject_id = s.id) AS note_count,
+       (SELECT COUNT(*)::int FROM graph_nodes gn WHERE gn.subject_id = s.id) AS graph_node_count,
+       (SELECT COUNT(*)::int FROM flashcards f WHERE f.subject_id = s.id AND f.status != 'deleted') AS card_count,
+       (SELECT MAX(nf2.updated_at) FROM note_files nf2 WHERE nf2.subject_id = s.id) AS last_synced_at,
+       COALESCE((
+         SELECT COUNT(*)::int FROM (
+           SELECT id FROM flashcards fd
+           WHERE fd.subject_id = s.id AND fd.status != 'new' AND fd.status != 'deleted'
+             AND (fd.next_review_at IS NULL OR fd.next_review_at <= NOW())
+           ORDER BY CASE WHEN fd.next_review_at IS NULL THEN 0 ELSE 1 END, fd.next_review_at ASC
+           LIMIT ${DUE_QUEUE_LIMIT}
+         ) due_sub
+       ), 0)
+       + LEAST(
+         (SELECT COUNT(*)::int FROM flashcards fn WHERE fn.subject_id = s.id AND fn.status = 'new'),
+         GREATEST(0, (SELECT COALESCE(card_density, ${DEFAULT_DAILY_CAP}) FROM user_preferences up WHERE up.user_id = $1) - COALESCE((
+           SELECT COUNT(*)::int FROM review_history rh
+           WHERE rh.user_id = $1 AND rh.reviewed_at >= date_trunc('day', NOW()) AND rh.card_id IN (
+             SELECT fc.id FROM flashcards fc WHERE fc.subject_id = s.id AND fc.status = 'accepted' AND fc.review_count = 1
+           )
+         ), 0))
+       ) AS cards_due_today
+     FROM subjects s
+     WHERE s.user_id = $1 AND s.archived = FALSE
+     ORDER BY s.created_at DESC`,
+    [userId]
+  );
+  return rows;
 }

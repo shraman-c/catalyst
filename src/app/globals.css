@@ -46,6 +46,8 @@
     --ink: #F2F0E9;
     --surface: #1A1A1A;
     --mono-panel: #222018;
+    /* Links need a lighter green on dark — #2E7D5B fails contrast on #111. */
+    --link: #5FD68A;
   }
 }
 
@@ -56,6 +58,7 @@ html.dark {
   --ink: #F2F0E9;
   --surface: #1A1A1A;
   --mono-panel: #222018;
+  --link: #5FD68A;
 }
 
 :root.light,
@@ -1361,5 +1364,116 @@ body {
 @media (max-width: 640px) {
   .empty-state {
     padding: 28px 16px;
+  }
+}
+
+/* ============================================================
+   38. Connection status banner (Part 2 — offline support)
+   ============================================================ */
+.connection-banner {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 16px;
+  z-index: 2000; /* above the mobile bottom nav (100) and toasts (2000) */
+  width: max-content;
+  max-width: min(92vw, 560px);
+  padding: 10px 16px;
+  border: 3px solid var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.connection-banner--offline {
+  background-color: var(--alert);
+  color: var(--base);
+  box-shadow: 4px 4px 0 0 var(--ink);
+}
+
+.connection-banner--online {
+  background-color: var(--link);
+  color: var(--surface);
+  box-shadow: 4px 4px 0 0 var(--ink);
+}
+
+/* Clear the fixed mobile bottom nav on small screens (nav height + home-
+   indicator safe area — mirrored by the nav's own safe-area padding) */
+@media (max-width: 640px) {
+  .connection-banner {
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ============================================================
+   39. Mobile bottom nav — big icon chips (Part: Devices bundle)
+   ============================================================ */
+.mobile-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--base);
+  border-top: var(--border-thick) solid var(--ink);
+  z-index: 100;
+  justify-content: space-around;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+.mobile-nav__item {
+  flex: 1;
+  max-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 10px 6px;
+  border: 3px solid var(--ink);
+  background-color: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: 3px 3px 0 0 var(--ink);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.mobile-nav__item svg {
+  display: block;
+}
+
+.mobile-nav__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+/* Active page: signal fill + bigger shadow — clearly the prominent tab */
+.mobile-nav__item--active {
+  background-color: var(--signal);
+  box-shadow: 4px 4px 0 0 var(--ink);
+}
+
+/* Brutalist press: shadow collapses, chip shifts down-right */
+.mobile-nav__item:active {
+  box-shadow: none;
+  transform: translate(3px, 3px);
+}
+
+.mobile-nav__item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--base), 0 0 0 6px var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav__item:active {
+    transform: none;
   }
 }

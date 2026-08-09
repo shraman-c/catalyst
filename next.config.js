@@ -1,3 +1,15 @@
+const fs = require('fs');
+const crypto = require('crypto');
+
+// Content-hash the offline fallback page so a changed offline.html automatically
+// gets a NEW precache revision. A fixed revision string would serve the stale
+// copy to existing installs forever — this way the service worker refresh picks
+// it up on the next build.
+const offlineHtmlPath = 'public/offline.html';
+const offlineRevision = fs.existsSync(offlineHtmlPath)
+  ? crypto.createHash('sha256').update(fs.readFileSync(offlineHtmlPath)).digest('hex').slice(0, 8)
+  : 'offline';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // @node-rs/argon2 ships a native .node binary. Keep it external on the
@@ -70,6 +82,18 @@ const nextConfig = {
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
+  workboxOptions: {
+    // Offline support (Part 2): precache a self-contained fallback page and
+    // serve it for any navigation that can't be satisfied — either because
+    // the network is down or the page was never cached. Visited pages still
+    // work from the SW's NetworkFirst page cache; this catches everything
+    // else so the user never sees a bare browser error page.
+    additionalManifestEntries: [{ url: '/offline.html', revision: offlineRevision }],
+    navigateFallback: '/offline.html',
+    // Don't fall back for API calls or static assets — they either cache
+    // separately (apis/static routes) or should just fail cleanly.
+    navigateFallbackDenylist: [/^\/api\//, /\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff2?|ttf|eot|json|xml|html?|txt)$/],
+  },
 });
 
 module.exports = withPWA(nextConfig);

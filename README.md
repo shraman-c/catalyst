@@ -17,7 +17,7 @@ npm run dev
 | `GROQ_API_KEY` | ✅ | LLM text generation (concept extraction, graph merge, flashcard generation) via the [Groq API](https://console.groq.com/keys) |
 | `PINECONE_API_KEY` | ✅ | Vector storage + embeddings via Pinecone inference (`voyage-3-lite`). Create at [app.pinecone.io](https://app.pinecone.io) |
 | `PINECONE_INDEX` | – | Index name (default `catalyst`; created automatically on first use) |
-| `DATABASE_URL` | ✅ | Supabase Postgres connection string |
+| `DATABASE_URL` | ✅ | Supabase Postgres connection string. **In production use the Supabase pooler** (port `6543`) instead of the direct connection (port `5432`) — serverless instances open many short-lived connections, and the pooler (plus `?pgbouncer=true` for transaction mode) handles that without exhausting the project's direct-connection limit. Example: `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true`. Also keep the app's Vercel function region in the same region as your Supabase project (e.g. both `us-east-1`) to minimize round-trip latency. |
 | `NEXTAUTH_SECRET` | ✅ | Session signing secret (32+ chars) |
 | `NEXTAUTH_URL` | ✅ | App URL (e.g. `http://localhost:3000`) |
 

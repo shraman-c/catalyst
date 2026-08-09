@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
-import { queryAll, queryOne, execute, generateId } from '@/lib/db';
+import { queryOne, execute, generateId } from '@/lib/db';
 import { parseBody, createSubjectSchema } from '@/lib/validation';
-import { getCardsDueCount } from '@/lib/review';
+import { getSubjectsWithStats } from '@/lib/review';
 import type { Subject } from '@/lib/types';
 
 export async function GET() {
@@ -12,35 +12,26 @@ export async function GET() {
 
     await ensureSchema();
 
-    const subjects = await queryAll<Subject>(
-      'SELECT * FROM subjects WHERE user_id = ? AND archived = FALSE ORDER BY created_at DESC',
-      [session.id]
-    );
+    // Single query for all subjects + stats (was 5N round-trips, see
+    // getSubjectsWithStats in src/lib/review.ts).
+    const subjectRows = await getSubjectsWithStats(session.id);
 
-    const subjectsWithStats = await Promise.all(
-      subjects.map(async (s) => {
-        const [noteCount, nodeCount, cardCount, cardsDue, lastSync] = await Promise.all([
-          queryOne<{ c: number }>('SELECT COUNT(*) as c FROM note_files WHERE subject_id = ?', [s.id]),
-          queryOne<{ c: number }>('SELECT COUNT(*) as c FROM graph_nodes WHERE subject_id = ?', [s.id]),
-          queryOne<{ c: number }>("SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != 'deleted'", [s.id]),
-          getCardsDueCount(s.id, session.id),
-          queryOne<{ t: string | null }>('SELECT MAX(updated_at) as t FROM note_files WHERE subject_id = ?', [s.id]),
-        ]);
-        return {
-          ...s,
-          stats: {
-            note_count: noteCount?.c ?? 0,
-            graph_node_count: nodeCount?.c ?? 0,
-            graph_edge_count: 0,
-            card_count: cardCount?.c ?? 0,
-            cards_due_today: cardsDue,
-            last_synced_at: lastSync?.t ?? null,
-          },
-        };
-      })
-    );
+    const subjects = subjectRows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      created_at: s.created_at,
+      stats: {
+        note_count: s.note_count,
+        graph_node_count: s.graph_node_count,
+        graph_edge_count: 0,
+        card_count: s.card_count,
+        cards_due_today: s.cards_due_today,
+        last_synced_at: s.last_synced_at,
+      },
+    }));
 
-    return NextResponse.json({ subjects: subjectsWithStats });
+    return NextResponse.json({ subjects });
   } catch (err) {
     console.error('GET /api/subjects error:', err);
     return NextResponse.json({ error: 'Failed to fetch subjects' }, { status: 500 });

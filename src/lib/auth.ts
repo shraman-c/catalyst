@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 // Argon2id (prebuilt native binary, @node-rs/argon2) — kept external to
 // webpack via serverExternalPackages in next.config.js.
 import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
-import { queryOne, execute, executeStrict, generateId, initializeSchema } from './db';
+import { queryOne, execute, executeStrict, generateId, initializeSchema, ensureDeviceMigrations } from './db';
 import type { SessionUser } from './types';
 
 const secretStr = process.env.NEXTAUTH_SECRET;
@@ -36,17 +36,42 @@ declare global {
 
 export async function ensureSchema() {
   if (global.__catalystSchemaInit) return;
+  // One cheap catalog probe instead of the ~30-statement initializeSchema()
+  // DDL sweep. On serverless (Vercel) every cold instance used to run the full
+  // DDL on its first request — multi-second latency on login AND on every data
+  // fetch. Only a genuinely fresh database (no `users` table) runs migrations now.
+  // Note: this short-circuits the idempotent ALTER-column backfills in
+  // initializeSchema() for pre-existing tables — if you ever add a column to
+  // the schema, run the DDL once manually on the production DB.
+  const probe = await queryOne<{ exists: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'users') AS exists"
+  );
+  if (probe?.exists) {
+    // Existing DB: run only the additive column backfills (Part 3), never the
+    // full DDL sweep — keeps the cold-start win while self-migrating.
+    await ensureDeviceMigrations();
+    global.__catalystSchemaInit = true;
+    return;
+  }
   await initializeSchema();
   global.__catalystSchemaInit = true;
 }
 
 const SESSION_DAYS = 30;
 
+export interface SessionMeta {
+  device_label?: string | null;
+  ip_address?: string | null;
+}
+
 /**
  * Create a session: sign a JWT (with a jti) AND persist a row in the sessions
  * table. The DB row is the source of truth — see verifySession().
+ *
+ * `meta` carries the device fingerprint (parsed User-Agent + client IP) so
+ * browser sessions appear in the unified Devices list (Part 3).
  */
-export async function createSession(user: SessionUser): Promise<string> {
+export async function createSession(user: SessionUser, meta?: SessionMeta): Promise<string> {
   // The sessions table must exist before the row insert (fresh-DB first login).
   await ensureSchema();
   const jti = crypto.randomUUID();
@@ -60,10 +85,37 @@ export async function createSession(user: SessionUser): Promise<string> {
   // Best-effort row insert. If the write fails the token still verifies but
   // has no backing row, so verifySession() will reject it — fail closed.
   await execute(
-    `INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES ($1, $2, NOW(), NOW() + INTERVAL '${SESSION_DAYS} days')`,
-    [jti, user.id]
+    `INSERT INTO sessions (id, user_id, device_label, ip_address, created_at, expires_at)
+     VALUES ($1, $2, $3, $4, NOW(), NOW() + INTERVAL '${SESSION_DAYS} days')`,
+    [jti, user.id, meta?.device_label ?? null, meta?.ip_address ?? null]
   );
   return token;
+}
+
+// Throttled last-active bookkeeping (Part 3): sessions.last_active_at is the
+// "last seen" value shown on the Devices page. Updating it on EVERY request
+// would add a write to every authenticated call, so it's throttled per jti to
+// once per 10 minutes per serverless instance (best-effort — the PRD asks for
+// 10–15 min granularity, not request-accurate timestamps).
+const lastActiveUpdates = new Map<string, number>();
+const LAST_ACTIVE_THROTTLE_MS = 10 * 60 * 1000;
+const MAX_LAST_ACTIVE_ENTRIES = 5000;
+const LAST_ACTIVE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function touchSession(jti: string): Promise<void> {
+  const now = Date.now();
+  const last = lastActiveUpdates.get(jti);
+  if (last !== undefined && now - last <= LAST_ACTIVE_THROTTLE_MS) return;
+
+  // Bound memory: drop entries not seen in 24h; if still over budget, reset.
+  if (lastActiveUpdates.size >= MAX_LAST_ACTIVE_ENTRIES) {
+    for (const [k, t] of lastActiveUpdates) {
+      if (now - t > LAST_ACTIVE_TTL_MS) lastActiveUpdates.delete(k);
+    }
+    if (lastActiveUpdates.size >= MAX_LAST_ACTIVE_ENTRIES) lastActiveUpdates.clear();
+  }
+  lastActiveUpdates.set(jti, now);
+  await execute('UPDATE sessions SET last_active_at = NOW() WHERE id = $1', [jti]);
 }
 
 /**
@@ -99,6 +151,10 @@ export async function verifySession(token: string): Promise<SessionUser | null> 
   if (!session) return null;
   if (session.revoked_at) return null;
   if (new Date(session.expires_at).getTime() < Date.now()) return null;
+
+  // Best-effort throttled "last seen" update (Part 3) — execute() swallows
+  // errors internally, so this never blocks or fails a request.
+  await touchSession(jti);
 
   return payload.user as SessionUser;
 }
@@ -136,6 +192,26 @@ export async function getSession(): Promise<SessionUser | null> {
   if (!user) return null;
   await ensureUserRow(user);
   return user;
+}
+
+/**
+ * Decode the CURRENT request's session jti without a DB round-trip.
+ * Used by the Devices page to flag "this device" and by the revoke route to
+ * detect when a user revokes their own active session (audit 2.6 / Part 3).
+ */
+export async function getSessionJti(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME_EXPORT)?.value;
+  if (!token) return null;
+  for (const secret of VERIFY_SECRETS) {
+    try {
+      const { payload } = await jwtVerify(token, secret);
+      return (payload.jti as string) ?? null;
+    } catch {
+      // try next key
+    }
+  }
+  return null;
 }
 
 /**

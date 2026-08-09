@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/ThemeProvider";
-import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Catalyst — Turn Notes Into Knowledge",
@@ -54,12 +53,8 @@ export default function RootLayout({
         ` }} />
       </head>
       <body>
-        <ThemeProvider>
-          {children}
-          <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}>
-            <ThemeToggle showLabel={false} />
-          </div>
-        </ThemeProvider>
+        {/* Theme switching lives in Settings → Appearance (LIGHT / DARK / SYSTEM). */}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

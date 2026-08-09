@@ -216,6 +216,9 @@ export default function GraphPage() {
   const fitRef = useRef(false); // only auto-fit once per graph load
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
+  // Label density toggle — ALL NAMES labels every concept; HUB NAMES
+  // labels only the most-connected concepts (the hub set below).
+  const [allNames, setAllNames] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   const clusterManualRef = useRef(false); // user explicitly toggled grouping — stop auto-clustering
@@ -458,6 +461,7 @@ export default function GraphPage() {
   const selectedRef = useRef(selectedNode);
   const searchRef = useRef(searchQuery);
   const hoveredLinkRef = useRef(hoveredLink);
+  const allNamesRef = useRef(allNames);
   const focusSetRef = useRef(focusSet);
   const visibleLabelsRef = useRef<Set<string>>(new Set());
   // Viewport bounds in graph space (computed from the zoom transform +
@@ -475,14 +479,15 @@ export default function GraphPage() {
   selectedRef.current = selectedNode;
   searchRef.current = searchQuery;
   hoveredLinkRef.current = hoveredLink;
+  allNamesRef.current = allNames;
   focusSetRef.current = focusSet;
 
   // ---------------------------------------------------------------
   // Label visibility — computed per frame in onRenderFramePre so it uses
-  // live positions and zoom. Greedy placement guarantees no two labels
-  // ever overlap: candidates are sorted by priority (hovered/selected/
-  // searched first, then hubs by degree), and each label is skipped if
-  // its box intersects an already-placed label or another node circle.
+  // live positions and zoom. Every in-viewport node earns a label once
+  // the sim settles (all vertex names visible); viewport culling keeps
+  // the pass cheap on large graphs, and label size is capped so a
+  // zoomed-out graph stays readable instead of becoming one big blur.
   // ---------------------------------------------------------------
   function computeVisibleLabels(ctx: CanvasRenderingContext2D, globalScale: number): Set<string> {
     const out = new Set<string>();
@@ -490,21 +495,6 @@ export default function GraphPage() {
     if (!nodes.length) return out;
 
     const zoom = Math.max(globalScale, 0.01);
-    // Same clamp as the draw path so measurement matches rendering
-    const fs = Math.max(8, 11 / zoom);
-    ctx.font = `${fs}px ${FONT_MONO}`;
-
-    const degOf = (n: any) => degreeMapRef.current.get(n.id) || 0;
-    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
-
-    // Zoom threshold per node tier — labels reveal progressively as you
-    // zoom in (Obsidian principle: label density scales with zoom). Hub
-    // nodes label unconditionally once the sim settles (collision pass
-    // still prevents overlap), so a sparse 50+ node graph shows its hubs
-    // at default zoom. Smaller tiers need more zoom to earn a label.
-    const minZoomFor = (n: any): number => {
-      return 0; // Always attempt to show labels regardless of zoom level
-    };
 
     const q = searchRef.current.trim().toLowerCase();
     const hovered = hoveredRef.current;
@@ -541,49 +531,18 @@ export default function GraphPage() {
         (selected && n.id === selected.id) ||
         (q && (n.name || '').toLowerCase().includes(q)) ||
         (focusSetNow && n.id === focusNodeId);
-      const zoomedEnough = settledRef.current && zoom >= minZoomFor(n);
-      if (explicit || zoomedEnough) {
-        (n as any).__prio = explicit ? 0 : 1;
+      // Explicit targets (hovered/selected/searched/focus) always get a
+      // label in either mode; automatic labeling once the sim settles is
+      // gated by the mode (ALL = every node, HUB = hubs only).
+      if (explicit || (settledRef.current && (allNamesRef.current || hubIdsRef.current.has(n.id)))) {
         cands.push(n);
       }
     }
-    cands.sort((a, b) =>
-      (a.__prio - b.__prio) ||
-      ((degOf(b) - degOf(a)) || ((b.reference_count || 0) - (a.reference_count || 0)))
-    );
 
-    for (const n of cands) {
-      const r = nodeRadius(n, degOf(n));
-      const x = n.x ?? 0;
-      const y = n.y ?? 0;
-      const label = n.__isCluster ? n.__clusterLabel || n.name : (n.name || '?');
-      const tw = ctx.measureText(label).width;
-      const x0 = x + r + 5;
-      const y0 = y - fs / 2 - 2;
-      const x1 = x0 + tw + 6;
-      // Cluster chips render below the label — include their height so
-      // the collision rect covers the full two-line cluster label.
-      const chipH = n.__isCluster ? fs + 8 : 0;
-      const y1 = y + fs / 2 + 2 + chipH;
-
-      // Reject if the label box overlaps an already-placed label
-      let collide = false;
-      for (const rc of placed) {
-        if (x0 < rc.x1 && x1 > rc.x0 && y0 < rc.y1 && y1 > rc.y0) { collide = true; break; }
-      }
-      // Reject if the label box covers another node's circle
-      if (!collide) {
-        for (const m of nodes) {
-          if (m === n || m.x === undefined || m.y === undefined) continue;
-          const mr = nodeRadius(m, degOf(m));
-          if (m.x > x0 - mr && m.x < x1 + mr && m.y > y0 - mr && m.y < y1 + mr) { collide = true; break; }
-        }
-      }
-      if (!collide) {
-        out.add(n.id);
-        placed.push({ x0, y0, x1, y1 });
-      }
-    }
+    // No collision pass — in ALL NAMES mode every in-viewport node keeps
+    // its label once the sim settles; in HUB NAMES mode only hub concepts
+    // (plus hovered/selected/searched targets) are labeled.
+    cands.forEach(n => out.add(n.id));
     return out;
   }
 
@@ -825,6 +784,13 @@ export default function GraphPage() {
           >
             {clusteringActive ? 'SHOWING GROUPS' : 'GROUP CONCEPTS'}
           </button>
+          <button
+            className={`btn ${allNames ? 'btn-secondary' : 'btn-ghost'}`}
+            onClick={() => setAllNames(v => !v)}
+            title="ALL NAMES labels every concept; HUB NAMES labels only the most-connected concepts"
+          >
+            {allNames ? 'ALL NAMES' : 'HUB NAMES'}
+          </button>
         </div>
       </div>
 
@@ -1015,12 +981,13 @@ export default function GraphPage() {
 
                 ctx.globalAlpha = 1;
 
-                // Label — always show for hovered node and its neighbors,
-                // otherwise only when the collision pass allowed it.
+                // Label — hovered node and its neighbors always show;
+                // other nodes show per the label mode (ALL NAMES = every
+                // node once settled, HUB NAMES = hubs only).
                 const showLabel = isHovered || isNeighborOfHovered || visibleLabelsRef.current.has(node.id);
                 if (showLabel) {
                   const label = node.__isCluster ? node.__clusterLabel || node.name : (node.name || '?');
-                  const fs = Math.max(8, 11 / globalScale);
+                  const fs = Math.max(8, Math.min(16, 11 / globalScale));
                   ctx.font = `${fs}px ${FONT_MONO}`;
                   ctx.fillStyle = themeColors.fg;
                   ctx.textAlign = 'left';
@@ -1077,11 +1044,11 @@ export default function GraphPage() {
                 // Visible edges — clear structure lines.
                 // Edges connected to the hovered node brighten + thicken;
                 // everything else stays normal (no dimming on hover).
-                let alpha = 0.55;
-                let lw = 1.5;
-                if (isHoveredLink) { alpha = 0.95; lw = 2.5; }
-                else if (touchesHovered) { alpha = 0.9; lw = 2.2; }
-                else if (dimmingRef.current) { alpha = highlighted ? 0.8 : 0.15; }
+                let alpha = 0.85;
+                let lw = 2.2;
+                if (isHoveredLink) { alpha = 1; lw = 3; }
+                else if (touchesHovered) { alpha = 0.95; lw = 2.8; }
+                else if (dimmingRef.current) { alpha = highlighted ? 0.85 : 0.15; }
 
                 ctx.beginPath();
                 ctx.moveTo(x1, y1);

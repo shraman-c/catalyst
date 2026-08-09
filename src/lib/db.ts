@@ -13,7 +13,12 @@ function getSql() {
     }
     sql = postgres(DATABASE_URL, {
       ssl: 'require',
-      max: 10,
+      // Keep the per-instance pool small: serverless can spin up many instances
+      // in parallel, and Supabase's free tier allows ~60 direct connections.
+      // With N warm instances at max 10 each, the limit is easy to exhaust;
+      // 5 keeps headroom. (The Supabase pooler — see README — removes this
+      // constraint entirely.)
+      max: 5,
       idle_timeout: 20,
       connect_timeout: 10,
     });
@@ -77,11 +82,17 @@ export async function initializeSchema(): Promise<void> {
   // Security audit (2026-08-08): server-side session store (audit 1.4/1.5/1.6).
   // A row is created per issued session JWT (jti) and checked on every request;
   // revoking the row invalidates the token even if it was captured.
+  // Part 3 (2026-08-09): browser sessions ARE devices — each login records the
+  // parsed User-Agent label, the client IP, and a throttled last-active time so
+  // the Devices page can show every logged-in browser alongside watcher devices.
   await client.unsafe(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      device_label TEXT,
+      ip_address TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_active_at TIMESTAMPTZ,
       expires_at TIMESTAMPTZ NOT NULL,
       revoked_at TIMESTAMPTZ
     )
@@ -202,7 +213,10 @@ export async function initializeSchema(): Promise<void> {
     )
   `);
 
-  // Devices table
+  // Devices table — watcher pairing (TRD FR-29/FR-30).
+  // Part 3 (2026-08-09): a `type` discriminator so the unified Devices UI can
+  // tell watcher rows apart from browser sessions (which live in `sessions`).
+  // All rows are watchers, so the default covers existing + new rows.
   await client.unsafe(`
     CREATE TABLE IF NOT EXISTS devices (
       id TEXT PRIMARY KEY,
@@ -212,6 +226,7 @@ export async function initializeSchema(): Promise<void> {
       token TEXT UNIQUE,
       folder_path TEXT,
       subject_id TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+      type TEXT NOT NULL DEFAULT 'sync_watcher',
       last_sync_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -231,6 +246,44 @@ export async function initializeSchema(): Promise<void> {
   await client.unsafe('CREATE INDEX IF NOT EXISTS idx_devices_pairing_code ON devices(pairing_code)');
   await client.unsafe('CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(token)');
 
+}
+
+/**
+ * Additive backfill for EXISTING databases (Part 3).
+ *
+ * ensureSchema() deliberately short-circuits on the cheap `users`-table probe,
+ * so ALTER-column additions never run on a database that already has tables —
+ * this is the exact trap the probe comment warns about. This function probes
+ * the catalog once and runs ONLY the missing ALTERs, so:
+ *   - existing DBs self-migrate on the next cold instance (one catalog query,
+ *     then at most a couple of idempotent ALTERs once),
+ *   - fresh DBs find the columns already present (zero DDL), and
+ *   - the cold-start latency win from the probe is preserved.
+ */
+export async function ensureDeviceMigrations(): Promise<void> {
+  // Key on (table, column) pairs so a future `type` column on `sessions` can
+  // never skip the devices ALTER (and vice versa).
+  const rows = await queryAll<{ table_name: string; column_name: string }>(
+    `SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND ((table_name = 'sessions' AND column_name IN ('device_label', 'ip_address', 'last_active_at'))
+         OR (table_name = 'devices' AND column_name = 'type'))`
+  );
+  const have = new Set(rows.map((r) => `${r.table_name}.${r.column_name}`));
+
+  if (!have.has('sessions.device_label')) {
+    await execute('ALTER TABLE sessions ADD COLUMN device_label TEXT');
+  }
+  if (!have.has('sessions.ip_address')) {
+    await execute('ALTER TABLE sessions ADD COLUMN ip_address TEXT');
+  }
+  if (!have.has('sessions.last_active_at')) {
+    await execute('ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMPTZ');
+  }
+  if (!have.has('devices.type')) {
+    // Existing rows are watcher rows; the default backfills them correctly.
+    await execute("ALTER TABLE devices ADD COLUMN type TEXT NOT NULL DEFAULT 'sync_watcher'");
+  }
 }
 
 export function generateId(): string {
