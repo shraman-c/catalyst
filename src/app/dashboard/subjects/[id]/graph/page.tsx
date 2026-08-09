@@ -707,6 +707,13 @@ export default function GraphPage() {
   }, []);
 
   function handleNodeClick(node: any) {
+    // Auto scale and zoom to the clicked concept/cluster
+    const fg = graphRef.current;
+    if (fg && node.x !== undefined && node.y !== undefined) {
+      fg.centerAt(node.x, node.y, 600);
+      fg.zoom(node.__isCluster ? 2 : 3, 600);
+    }
+
     if (node.__isCluster) {
       setExpandedClusters(prev => {
         const next = new Set(prev);
@@ -723,11 +730,6 @@ export default function GraphPage() {
     setEdgeRelType('related to');
     setEditName(node.name);
     setEditDef(node.definition);
-    // Optional: pan/center the graph on the clicked node
-    const fg = graphRef.current;
-    if (fg && node.x !== undefined && node.y !== undefined) {
-      fg.centerAt(node.x, node.y, 350);
-    }
   }
 
   async function handleSaveEdit() {
@@ -966,9 +968,12 @@ export default function GraphPage() {
                   const baseColor = node.__isCluster
                     ? themeColors.fg
                     : catColors[categoryIndex(node.name || '?')];
-                  grad.addColorStop(0, baseColor + '60');
-                  grad.addColorStop(0.6, baseColor + '20');
-                  grad.addColorStop(1, baseColor + '00');
+                  const hex = baseColor.length === 4 
+                    ? '#' + baseColor[1] + baseColor[1] + baseColor[2] + baseColor[2] + baseColor[3] + baseColor[3]
+                    : baseColor;
+                  grad.addColorStop(0, hex + '60');
+                  grad.addColorStop(0.6, hex + '20');
+                  grad.addColorStop(1, hex + '00');
                   ctx.beginPath();
                   ctx.arc(x, y, glowR, 0, Math.PI * 2);
                   ctx.fillStyle = grad;
