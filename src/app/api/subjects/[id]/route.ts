@@ -32,7 +32,7 @@ export async function GET(
     ]);
 
     const recentNotes = await queryAll(
-      "SELECT id, filename, source, content_hash, created_at, updated_at FROM note_files WHERE subject_id = ? AND source != 'deleted' ORDER BY updated_at DESC LIMIT 10",
+      "SELECT id, filename, source, content_hash, created_at, updated_at FROM note_files WHERE subject_id = ? AND source != 'deleted' ORDER BY updated_at DESC LIMIT 5",
       [id]
     );
 

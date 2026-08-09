@@ -161,7 +161,7 @@ export default function HomePage() {
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        style={{ opacity: resolvedTheme === 'dark' ? 0.9 : 0.6 }}
+                        style={{ opacity: 0.7 }}
                       >
                         {showPassword ? (
                           <>

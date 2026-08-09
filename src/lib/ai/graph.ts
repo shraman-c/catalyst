@@ -122,16 +122,22 @@ export async function mergeConceptsIntoGraph(
     }
   }
 
-  // Create edges
+  // Create edges — validate that both endpoints actually exist in graph_nodes
+  // before inserting. The AI sometimes hallucinates relationship targets or
+  // references concepts that were skipped, causing FK constraint violations.
   const allNodeMap = buildAllNodeMap(existingNodes, delta.nodes_created);
+  const validNodeIds = new Set([
+    ...existingNodes.map(n => n.id),
+    ...delta.nodes_created.map(n => n.id),
+  ]);
 
   for (const concept of extractedConcepts) {
     const fromId = nodeMergeMap[concept.name];
-    if (!fromId) continue;
+    if (!fromId || !validNodeIds.has(fromId)) continue;
 
     for (const rel of concept.relationships) {
       const toId = nodeMergeMap[rel.target] || allNodeMap[rel.target.toLowerCase()];
-      if (!toId || fromId === toId) continue;
+      if (!toId || fromId === toId || !validNodeIds.has(toId)) continue;
 
       const existingEdge = await queryOne(
         'SELECT id FROM graph_edges WHERE from_node_id = $1 AND to_node_id = $2 AND relationship_type = $3',
@@ -139,12 +145,18 @@ export async function mergeConceptsIntoGraph(
       );
 
       if (!existingEdge) {
-        const edgeId = generateId();
-        await executeStrict(
-          "INSERT INTO graph_edges (id, subject_id, from_node_id, to_node_id, relationship_type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())",
-          [edgeId, subjectId, fromId, toId, rel.type]
-        );
-        delta.edges_created.push({ from_node_id: fromId, to_node_id: toId, relationship_type: rel.type });
+        try {
+          const edgeId = generateId();
+          await executeStrict(
+            "INSERT INTO graph_edges (id, subject_id, from_node_id, to_node_id, relationship_type, created_at) VALUES ($1, $2, $3, $4, $5, NOW())",
+            [edgeId, subjectId, fromId, toId, rel.type]
+          );
+          delta.edges_created.push({ from_node_id: fromId, to_node_id: toId, relationship_type: rel.type });
+        } catch (err) {
+          // FK constraint violation — the node was deleted between the check
+          // and the insert, or the ID was somehow invalid. Log and continue.
+          console.warn(`[Graph] Skipping edge ${fromId} → ${toId}: ${err instanceof Error ? err.message : err}`);
+        }
       }
     }
   }
@@ -209,6 +221,25 @@ function buildAllNodeMap(existing: GraphNode[], created: GraphNode[]): Record<st
   for (const n of [...existing, ...created]) {
     map[n.name.toLowerCase()] = n.id;
   }
-  return map;
+
+  // Add a fuzzy-lookup wrapper: when the caller looks up a name that
+  // isn't an exact match, try stringSimilarity against all known names.
+  return new Proxy(map, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop];
+      // Try fuzzy match
+      const needle = prop.toLowerCase();
+      let bestId: string | undefined;
+      let bestScore = 0;
+      for (const [name, id] of Object.entries(target)) {
+        const score = stringSimilarity(needle, name);
+        if (score > 0.75 && score > bestScore) {
+          bestScore = score;
+          bestId = id;
+        }
+      }
+      return bestId;
+    },
+  });
 }
 
