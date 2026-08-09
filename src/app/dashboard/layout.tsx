@@ -2,7 +2,6 @@ import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import LogoutButtonClient from './LogoutButtonClient';
-import ThemeToggle from '@/components/ThemeToggle';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -31,7 +30,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
 
         <div className="flex gap-3 items-center" style={{ marginLeft: 'auto' }}>
-          <ThemeToggle showLabel={false} style={{ padding: '6px 10px' }} />
           <span className="mono-tag hide-on-mobile">{session.email}</span>
           <LogoutButtonClient />
         </div>

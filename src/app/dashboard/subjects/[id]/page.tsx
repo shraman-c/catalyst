@@ -34,6 +34,7 @@ export default function SubjectPage() {
   const [data, setData] = useState<SubjectData | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [pasteContent, setPasteContent] = useState('');
   const [pasteFilename, setPasteFilename] = useState('lecture-notes.md');
   const [uploadResult, setUploadResult] = useState<PipelineResult | null>(null);
@@ -96,6 +97,7 @@ export default function SubjectPage() {
     setUploading(true);
     setUploadError('');
     setUploadResult(null);
+    setUploadProgress({ current: 0, total: files.length });
 
     const accumulatedResult: PipelineResult = {
       nodes_created: 0,
@@ -138,6 +140,8 @@ export default function SubjectPage() {
         setUploadError(prev => (prev ? prev + '\n' : '') + `NETWORK ERROR for ${file.name}`);
         hasError = true;
       }
+      
+      setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
     }
 
     if (anySuccess) {
@@ -326,7 +330,24 @@ export default function SubjectPage() {
           {/* Processing state */}
           {uploading && (
             <div className="processing-block" style={{ marginTop: '12px' }}>
-              STRUCTURING YOUR NOTES... THIS TAKES ~15–30 SECONDS
+              <div style={{ marginBottom: '8px' }}>
+                STRUCTURING YOUR NOTES... THIS MIGHT TAKE SOME TIME
+              </div>
+              {uploadProgress.total > 1 && (
+                <>
+                  <div style={{ width: '100%', height: '8px', border: '2px solid var(--ink)', backgroundColor: 'var(--surface)' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%`,
+                      backgroundColor: 'var(--ink)',
+                      transition: 'width 0.2s',
+                    }} />
+                  </div>
+                  <div className="text-mono" style={{ marginTop: '4px', textAlign: 'center', fontSize: '11px' }}>
+                    {uploadProgress.current} OF {uploadProgress.total} PROCESSED
+                  </div>
+                </>
+              )}
             </div>
           )}
 
