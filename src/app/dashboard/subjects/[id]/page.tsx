@@ -44,18 +44,23 @@ export default function SubjectPage() {
   const [syncStatus, setSyncStatus] = useState<{ watcher_connected: boolean; last_sync_at: string | null; folder_path: string | null } | null>(null);
 
   const fetchData = useCallback(async () => {
-    const [subjectRes, syncRes] = await Promise.all([
-      fetch(`/api/subjects/${subjectId}`),
-      fetch(`/api/sync/status?subject_id=${subjectId}`),
-    ]);
-    if (subjectRes.status === 401) { router.push('/'); return; }
-    if (subjectRes.ok) {
-      setData(await subjectRes.json());
+    try {
+      const [subjectRes, syncRes] = await Promise.all([
+        fetch(`/api/subjects/${subjectId}`),
+        fetch(`/api/sync/status?subject_id=${subjectId}`),
+      ]);
+      if (subjectRes.status === 401) { router.push('/'); return; }
+      if (subjectRes.ok) {
+        setData(await subjectRes.json());
+      }
+      if (syncRes.ok) {
+        setSyncStatus(await syncRes.json());
+      }
+    } catch (err) {
+      console.warn("Failed to fetch subject data. You might be offline.", err);
+    } finally {
+      setLoading(false);
     }
-    if (syncRes.ok) {
-      setSyncStatus(await syncRes.json());
-    }
-    setLoading(false);
   }, [subjectId, router]);
 
   useEffect(() => { fetchData(); }, [fetchData]);

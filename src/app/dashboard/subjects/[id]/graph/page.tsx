@@ -665,20 +665,24 @@ export default function GraphPage() {
     if (sourceFilter) queryParams.set('note_id', sourceFilter);
     if (showClusters) queryParams.set('cluster', 'true');
 
-    const res = await fetch(`/api/graph/${subjectId}?${queryParams.toString()}`);
-    if (res.status === 401) { router.push('/'); return; }
-    if (res.ok) {
-      const data = await res.json();
-      const edges = data.edges.map((e: any) => ({
-        ...e,
-        source: e.from_node_id,
-        target: e.to_node_id,
-      }));
-      setGraphData({ ...data, edges });
-      fitRef.current = false;
-      settledRef.current = false;
-      setExpandedClusters(new Set());
-      setFocusNodeId(null);
+    try {
+      const res = await fetch(`/api/graph/${subjectId}?${queryParams.toString()}`);
+      if (res.status === 401) { router.push('/'); return; }
+      if (res.ok) {
+        const data = await res.json();
+        const edges = data.edges.map((e: any) => ({
+          ...e,
+          source: e.from_node_id,
+          target: e.to_node_id,
+        }));
+        setGraphData({ ...data, edges });
+        fitRef.current = false;
+        settledRef.current = false;
+        setExpandedClusters(new Set());
+        setFocusNodeId(null);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch graph data. You might be offline.", err);
     }
     setLoading(false);
   }, [subjectId, router, timeFilter, sourceFilter, showClusters]);
@@ -724,6 +728,12 @@ export default function GraphPage() {
       return;
     }
     setSelectedNode(node);
+    
+    // Automatically focus on the clicked topic and its immediate neighbors (subtopics)
+    setFocusNodeId(node.id);
+    setFocusHops(1);
+    fitRef.current = false;
+    
     setEditMode(false);
     setAddEdgeMode(false);
     setEdgeTargetId('');
@@ -792,7 +802,7 @@ export default function GraphPage() {
         <span className="text-mono">KNOWLEDGE GRAPH</span>
       </div>
 
-      <div className="page-header">
+      <div className="page-header" style={{ paddingBottom: '4px', marginBottom: '12px' }}>
         <div>
           <h1 className="text-display-lg">KNOWLEDGE GRAPH</h1>
           {graphData && (
@@ -825,7 +835,7 @@ export default function GraphPage() {
       </div>
 
       {/* Filters */}
-      <div className="bento-tile" style={{ marginBottom: '16px', padding: '12px 16px' }}>
+      <div className="bento-tile" style={{ marginBottom: '8px', padding: '8px 16px' }}>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Live search — highlights matches on the canvas as you type */}
           <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '200px', alignItems: 'center' }}>
