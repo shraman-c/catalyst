@@ -1,0 +1,6 @@
+name = "catalyst"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+# If you use Supabase or Neon, make sure your production DATABASE_URL is added to the Cloudflare Pages dashboard
