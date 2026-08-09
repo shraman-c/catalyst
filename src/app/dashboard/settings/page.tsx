@@ -39,6 +39,7 @@ export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [loggingOutAll, setLoggingOutAll] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     const res = await fetch('/api/settings');
@@ -89,6 +90,24 @@ export default function SettingsPage() {
     setExporting(false);
   }
 
+  async function handleLogoutAllDevices() {
+    setLoggingOutAll(true);
+    try {
+      // Revokes every server-side session (audit 1.5/1.6) — including this
+      // browser's cookie, which the route deletes for us.
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout_all' }),
+      });
+      router.push('/');
+      router.refresh();
+    } catch (err) {
+      console.error('Logout all failed:', err);
+      setLoggingOutAll(false);
+    }
+  }
+
   async function handleDeleteAccount() {
     if (deleteConfirm !== user?.email) return;
     
@@ -131,6 +150,19 @@ export default function SettingsPage() {
               <span className="text-mono" style={{ opacity: 0.6 }}>NAME</span>
               <span className="text-body-sm">{user?.name ?? '—'}</span>
             </div>
+            <div className="divider-ink" style={{ margin: '16px calc(-1 * var(--card-pad))' }} />
+            <p className="text-body-sm" style={{ opacity: 0.6, marginBottom: '10px' }}>
+              Revoke every active session (this browser, the watcher, any other device).
+            </p>
+            <button
+              className="btn btn-ghost"
+              onClick={handleLogoutAllDevices}
+              disabled={loggingOutAll}
+              id="logout-all-btn"
+              style={{ width: 'fit-content', color: 'var(--link)' }}
+            >
+              {loggingOutAll ? 'LOGGING OUT...' : 'LOG OUT OF ALL DEVICES'}
+            </button>
           </div>
 
           {/* Theme section */}

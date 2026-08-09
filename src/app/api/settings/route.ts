@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryOne, execute } from '@/lib/db';
+import { parseBody, updateSettingsSchema } from '@/lib/validation';
 
 interface UserPreferences {
   user_id: string;
@@ -37,7 +38,10 @@ export async function PATCH(request: NextRequest) {
 
   await ensureSchema();
 
-  const { card_density, graph_verbosity } = await request.json();
+  const body = await request.json().catch(() => null);
+  const parsed = parseBody(updateSettingsSchema, body);
+  if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  const { card_density, graph_verbosity } = parsed.data;
 
   // Upsert preferences
   await execute(

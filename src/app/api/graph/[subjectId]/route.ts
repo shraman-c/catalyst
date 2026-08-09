@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne, execute, generateId } from '@/lib/db';
 import { deleteEmbedding, graphNamespace } from '@/lib/ai/vector';
+import { parseBody, graphActionSchema } from '@/lib/validation';
 import type { GraphNode, GraphEdge, Subject } from '@/lib/types';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { subjectId: string } }
+  { params }: { params: Promise<{ subjectId: string }> }
 ) {
+  const { subjectId } = await params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -15,7 +17,7 @@ export async function GET(
 
   const subject = await queryOne<Subject>(
     'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
-    [params.subjectId, session.id]
+    [subjectId, session.id]
   );
   if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 });
 
@@ -28,7 +30,7 @@ export async function GET(
 
   // Build base queries with filters
   let nodesQuery = 'SELECT * FROM graph_nodes WHERE subject_id = ?';
-  let nodesArgs: any[] = [params.subjectId];
+  let nodesArgs: any[] = [subjectId];
 
   // Add time filter
   if (timeFilter !== 'all') {
@@ -60,7 +62,7 @@ export async function GET(
        JOIN graph_nodes fn ON ge.from_node_id = fn.id
        JOIN graph_nodes tn ON ge.to_node_id = tn.id
        WHERE ge.subject_id = ?`,
-      [params.subjectId]
+      [subjectId]
     ),
   ]);
 
@@ -79,7 +81,7 @@ export async function GET(
           `SELECT id, front, back, card_type, status
            FROM flashcards
            WHERE subject_id = ? AND status != 'deleted' AND node_ids LIKE ?`,
-          [params.subjectId, `%${node.id}%`]
+          [subjectId, `%${node.id}%`]
         ),
       ]);
       return { ...node, source_notes: sourceNotes, linked_cards: linkedCards };
@@ -160,8 +162,9 @@ function generateClusters(nodes: GraphNode[], edges: GraphEdge[]): any[] {
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { subjectId: string } }
+  { params }: { params: Promise<{ subjectId: string }> }
 ) {
+  const { subjectId } = await params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -169,42 +172,51 @@ export async function PATCH(
 
   const subject = await queryOne<Subject>(
     'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
-    [params.subjectId, session.id]
+    [subjectId, session.id]
   );
   if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 });
 
-  const { action, node_id, name, definition, merge_into_id, from_node_id, to_node_id, relationship_type: rel_type } = await request.json();
+  const body = await request.json().catch(() => null);
+  const parsed = parseBody(graphActionSchema, body);
+  if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  const { action } = parsed.data;
 
   if (action === 'rename') {
+    const { node_id, name, definition } = parsed.data;
     await execute(
       'UPDATE graph_nodes SET name = ?, definition = ?, manually_edited = TRUE, updated_at = NOW() WHERE id = ? AND subject_id = ?',
-      [name, definition || '', node_id, params.subjectId]
+      [name, definition || '', node_id, subjectId]
     );
   }
 
   if (action === 'delete') {
-    await execute('DELETE FROM graph_nodes WHERE id = ? AND subject_id = ?', [node_id, params.subjectId]);
+    const { node_id } = parsed.data;
+    await execute('DELETE FROM graph_nodes WHERE id = ? AND subject_id = ?', [node_id, subjectId]);
     // Purge the node's embedding from Pinecone so it can't match future dedup queries
-    await deleteEmbedding(graphNamespace(params.subjectId), node_id);
+    await deleteEmbedding(graphNamespace(subjectId), node_id);
   }
 
-  if (action === 'merge' && merge_into_id) {
+  if (action === 'merge') {
+    const { node_id, merge_into_id } = parsed.data;
+    if (!merge_into_id) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     await Promise.all([
-      execute('UPDATE graph_edges SET from_node_id = ? WHERE from_node_id = ?', [merge_into_id, node_id]),
-      execute('UPDATE graph_edges SET to_node_id = ? WHERE to_node_id = ?', [merge_into_id, node_id]),
-      execute('UPDATE graph_nodes SET reference_count = reference_count + 1, manually_edited = TRUE WHERE id = ?', [merge_into_id]),
+      execute('UPDATE graph_edges SET from_node_id = ? WHERE from_node_id = ? AND subject_id = ?', [merge_into_id, node_id, subjectId]),
+      execute('UPDATE graph_edges SET to_node_id = ? WHERE to_node_id = ? AND subject_id = ?', [merge_into_id, node_id, subjectId]),
+      execute('UPDATE graph_nodes SET reference_count = reference_count + 1, manually_edited = TRUE WHERE id = ? AND subject_id = ?', [merge_into_id, subjectId]),
     ]);
-    await execute('DELETE FROM graph_nodes WHERE id = ?', [node_id]);
+    await execute('DELETE FROM graph_nodes WHERE id = ? AND subject_id = ?', [node_id, subjectId]);
     // Merged-away node no longer exists — remove its stale embedding
-    await deleteEmbedding(graphNamespace(params.subjectId), node_id);
+    await deleteEmbedding(graphNamespace(subjectId), node_id);
   }
 
-  if (action === 'add_edge' && from_node_id && to_node_id) {
+  if (action === 'add_edge') {
+    const { from_node_id, to_node_id, relationship_type: rel_type } = parsed.data;
+    if (!from_node_id || !to_node_id) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     const edgeId = generateId();
     await execute(
       `INSERT INTO graph_edges (id, subject_id, from_node_id, to_node_id, relationship_type, created_at)
        VALUES (?, ?, ?, ?, ?, NOW())`,
-      [edgeId, params.subjectId, from_node_id, to_node_id, rel_type || 'related to']
+      [edgeId, subjectId, from_node_id, to_node_id, rel_type || 'related to']
     );
   }
 

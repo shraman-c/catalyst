@@ -70,6 +70,24 @@ export async function initializeSchema(): Promise<void> {
     )
   `);
 
+  // Security audit (2026-08-08): lockout columns for failed-login backoff.
+  await client.unsafe('ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0');
+  await client.unsafe('ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ');
+
+  // Security audit (2026-08-08): server-side session store (audit 1.4/1.5/1.6).
+  // A row is created per issued session JWT (jti) and checked on every request;
+  // revoking the row invalidates the token even if it was captured.
+  await client.unsafe(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ
+    )
+  `);
+  await client.unsafe('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)');
+
   // Subjects table
   await client.unsafe(`
     CREATE TABLE IF NOT EXISTS subjects (

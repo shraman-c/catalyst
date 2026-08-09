@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne } from '@/lib/db';
+import { decryptNote } from '@/lib/encryption';
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -55,6 +56,12 @@ export async function GET(request: NextRequest) {
             [subject.id]
           ),
         ]);
+
+        // Encryption at rest (fix 3.3): decrypt note content before it leaves
+        // the server (both JSON and CSV paths read from these rows).
+        for (const note of notes as Array<{ content?: string | null }>) {
+          if (typeof note.content === 'string') note.content = decryptNote(note.content);
+        }
 
         return {
           subject,

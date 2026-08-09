@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne, execute, generateId } from '@/lib/db';
 import { deleteEmbedding, cardsNamespace } from '@/lib/ai/vector';
+import { parseBody, cardActionSchema } from '@/lib/validation';
+import { getDailyCap, countNewIntroducedToday } from '@/lib/review';
 import type { Flashcard, Subject } from '@/lib/types';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { subjectId: string } }
+  { params }: { params: Promise<{ subjectId: string }> }
 ) {
+  const { subjectId } = await params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -15,7 +18,7 @@ export async function GET(
 
   const subject = await queryOne<Subject>(
     'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
-    [params.subjectId, session.id]
+    [subjectId, session.id]
   );
   if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 });
 
@@ -23,14 +26,10 @@ export async function GET(
   const mode = searchParams.get('mode') || 'all';
 
   // Get user's card density preference (default 20 new cards/day)
-  const prefs = await queryOne<{ card_density: number }>(
-    'SELECT card_density FROM user_preferences WHERE user_id = ?',
-    [session.id]
-  );
-  const dailyCap = prefs?.card_density ?? 20;
+  const dailyCap = await getDailyCap(session.id);
 
   let sql = "SELECT * FROM flashcards WHERE subject_id = ? AND status != 'deleted'";
-  const args: any[] = [params.subjectId];
+  const args: any[] = [subjectId];
 
   if (mode === 'due') {
     // Due = already-reviewed cards whose interval has elapsed
@@ -38,23 +37,15 @@ export async function GET(
     sql += ' ORDER BY CASE WHEN next_review_at IS NULL THEN 0 ELSE 1 END, next_review_at ASC LIMIT 200';
     const dueCards = await queryAll<Flashcard>(sql, args);
 
-    // How many new cards were already reviewed today?
-    const today = new Date().toISOString().slice(0, 10);
-    const newReviewedToday = await queryOne<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM review_history
-       WHERE user_id = ? AND reviewed_at >= ? AND card_id IN (
-         SELECT id FROM flashcards WHERE subject_id = ? AND status = 'accepted' AND review_count = 1
-       )`,
-      [session.id, today, params.subjectId]
-    );
-    const alreadyIntroducedToday = newReviewedToday?.cnt ?? 0;
+    // How many new cards were already introduced (first-reviewed) today?
+    const alreadyIntroducedToday = await countNewIntroducedToday(session.id, subjectId);
     const newCardSlots = Math.max(0, dailyCap - alreadyIntroducedToday);
 
     // New cards (never reviewed) — limited by daily cap
     const newCards = await queryAll<Flashcard>(
       `SELECT * FROM flashcards WHERE subject_id = ? AND status = 'new'
        ORDER BY created_at ASC LIMIT ?`,
-      [params.subjectId, newCardSlots]
+      [subjectId, newCardSlots]
     );
 
     return NextResponse.json({ cards: [...newCards, ...dueCards], daily_cap: dailyCap });
@@ -73,8 +64,9 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { subjectId: string } }
+  { params }: { params: Promise<{ subjectId: string }> }
 ) {
+  const { subjectId } = await params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -82,48 +74,55 @@ export async function PATCH(
 
   const subject = await queryOne<Subject>(
     'SELECT * FROM subjects WHERE id = ? AND user_id = ?',
-    [params.subjectId, session.id]
+    [subjectId, session.id]
   );
   if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 });
 
-  const { action, card_id, front, back, rating } = await request.json();
+  const body = await request.json().catch(() => null);
+  const parsed = parseBody(cardActionSchema, body);
+  if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  const { action } = parsed.data;
 
   if (action === 'edit') {
+    const { card_id, front, back } = parsed.data;
     await execute(
       "UPDATE flashcards SET front = ?, back = ?, status = 'edited', updated_at = NOW() WHERE id = ? AND subject_id = ?",
-      [front, back, card_id, params.subjectId]
+      [front, back, card_id, subjectId]
     );
   }
 
   if (action === 'accept') {
+    const { card_id } = parsed.data;
     if (card_id) {
       // Accept a single card
       await execute(
         "UPDATE flashcards SET status = 'accepted', updated_at = NOW() WHERE id = ? AND subject_id = ? AND status = 'new'",
-        [card_id, params.subjectId]
+        [card_id, subjectId]
       );
     } else {
       // Bulk accept all new cards for this subject
       await execute(
         "UPDATE flashcards SET status = 'accepted', updated_at = NOW() WHERE subject_id = ? AND status = 'new'",
-        [params.subjectId]
+        [subjectId]
       );
     }
   }
 
   if (action === 'delete') {
+    const { card_id } = parsed.data;
     await execute(
       "UPDATE flashcards SET status = 'deleted', updated_at = NOW() WHERE id = ? AND subject_id = ?",
-      [card_id, params.subjectId]
+      [card_id, subjectId]
     );
     // Remove the card's embedding so it can't suppress future (legitimately new) cards in dedup
-    await deleteEmbedding(cardsNamespace(params.subjectId), card_id);
+    await deleteEmbedding(cardsNamespace(subjectId), card_id);
   }
 
   if (action === 'review') {
+    const { card_id, rating } = parsed.data;
     const card = await queryOne<Flashcard>(
       'SELECT * FROM flashcards WHERE id = ? AND subject_id = ?',
-      [card_id, params.subjectId]
+      [card_id, subjectId]
     );
     if (!card) return NextResponse.json({ error: 'Card not found' }, { status: 404 });
 
@@ -146,7 +145,7 @@ export async function PATCH(
         review_count = review_count + 1,
         updated_at = NOW()
        WHERE id = ? AND subject_id = ?`,
-      [nextReviewDate.toISOString(), newInterval, newEaseFactor, card_id, params.subjectId]
+      [nextReviewDate.toISOString(), newInterval, newEaseFactor, card_id, subjectId]
     );
 
     const historyId = generateId();

@@ -4,6 +4,7 @@ TRD.md
 AppFlow.md
 Stages.md
 design.md
+SECURITY_AUDIT.md
 
 # Dependencies
 node_modules/
@@ -43,3 +44,6 @@ yarn-error.log*
 # Watcher — device token and local DB must never be committed
 watcher/config.json
 watcher/node_modules/
+
+progress.md
+PROJECT_BRIEF.md

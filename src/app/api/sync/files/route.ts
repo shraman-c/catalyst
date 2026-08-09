@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ensureSchema } from '@/lib/auth';
 import { queryOne, execute, generateId } from '@/lib/db';
 import { processNote, hashContent } from '@/lib/ai/pipeline';
+import { parseBody, syncFileSchema, syncDeleteSchema } from '@/lib/validation';
+import { encryptNote } from '@/lib/encryption';
 import { jwtVerify } from 'jose';
 
 const jwtSecretStr = process.env.JWT_SECRET;
@@ -50,7 +52,10 @@ export async function POST(request: NextRequest) {
   const device = await authenticateDevice(request);
   if (!device) return NextResponse.json({ error: 'Unauthorized — invalid device token' }, { status: 401 });
 
-  const { path: filePath, filename, content, hash, subject_id: bodySubjectId } = await request.json();
+  const body = await request.json().catch(() => null);
+  const parsed = parseBody(syncFileSchema, body);
+  if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  const { path: filePath, filename, content, hash, subject_id: bodySubjectId } = parsed.data;
 
   // Determine subject: prefer body override, fall back to device default
   const subjectId = bodySubjectId || device.subject_id;
@@ -60,6 +65,11 @@ export async function POST(request: NextRequest) {
   }
   if (!content?.trim()) {
     return NextResponse.json({ error: 'content is required' }, { status: 400 });
+  }
+
+  // Audit 3.3: content inspection — reject binary payloads regardless of extension.
+  if (content.includes('\u0000')) {
+    return NextResponse.json({ error: 'File appears to be binary. Only text notes are supported.' }, { status: 400 });
   }
 
   const effectiveFilename = filename || (filePath ? filePath.split(/[\\/]/).pop() : 'synced-note.md');
@@ -95,11 +105,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Store version
+  // Store version — encrypted at rest (fix 3.3); the pipeline still receives
+  // the plaintext `content` in memory.
   const versionId = generateId();
   await execute(
     'INSERT INTO note_versions (id, note_file_id, content, created_at) VALUES (?, ?, ?, NOW())',
-    [versionId, noteFileId, content]
+    [versionId, noteFileId, encryptNote(content)]
   );
 
   // Update device sync timestamp
@@ -141,7 +152,10 @@ export async function DELETE(request: NextRequest) {
   const device = await authenticateDevice(request);
   if (!device) return NextResponse.json({ error: 'Unauthorized — invalid device token' }, { status: 401 });
 
-  const { filename, subject_id: bodySubjectId } = await request.json();
+  const body = await request.json().catch(() => null);
+  const parsed = parseBody(syncDeleteSchema, body);
+  if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  const { filename, subject_id: bodySubjectId } = parsed.data;
   const subjectId = bodySubjectId || device.subject_id;
 
   if (!subjectId || !filename) {

@@ -275,12 +275,17 @@ export default function ReviewPage() {
                 onClick={async () => {
                   if (!editingCard) return;
                   setSavingEdit(true);
-                  await fetch(`/api/cards/${subjectId}`, {
+                  // Update card in local state only on server success — a 400
+                  // from validation must not silently pretend the edit saved.
+                  const editRes = await fetch(`/api/cards/${subjectId}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'edit', card_id: editingCard.id, front: editFront, back: editBack }),
                   });
-                  // Update card in local state
+                  if (!editRes.ok) {
+                    setSavingEdit(false);
+                    return;
+                  }
                   setCards(prev => prev.map(c => c.id === editingCard.id ? { ...c, front: editFront, back: editBack } : c));
                   setSavingEdit(false);
                   setEditingCard(null);

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryAll, queryOne, execute, generateId } from '@/lib/db';
+import { parseBody, createSubjectSchema } from '@/lib/validation';
+import { getCardsDueCount } from '@/lib/review';
 import type { Subject } from '@/lib/types';
 
 export async function GET() {
@@ -21,7 +23,7 @@ export async function GET() {
           queryOne<{ c: number }>('SELECT COUNT(*) as c FROM note_files WHERE subject_id = ?', [s.id]),
           queryOne<{ c: number }>('SELECT COUNT(*) as c FROM graph_nodes WHERE subject_id = ?', [s.id]),
           queryOne<{ c: number }>("SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != 'deleted'", [s.id]),
-          queryOne<{ c: number }>("SELECT COUNT(*) as c FROM flashcards WHERE subject_id = ? AND status != 'deleted' AND (next_review_at IS NULL OR next_review_at <= NOW())", [s.id]),
+          getCardsDueCount(s.id, session.id),
           queryOne<{ t: string | null }>('SELECT MAX(updated_at) as t FROM note_files WHERE subject_id = ?', [s.id]),
         ]);
         return {
@@ -31,7 +33,7 @@ export async function GET() {
             graph_node_count: nodeCount?.c ?? 0,
             graph_edge_count: 0,
             card_count: cardCount?.c ?? 0,
-            cards_due_today: cardsDue?.c ?? 0,
+            cards_due_today: cardsDue,
             last_synced_at: lastSync?.t ?? null,
           },
         };
@@ -50,8 +52,10 @@ export async function POST(request: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { name, description } = await request.json();
-    if (!name?.trim()) return NextResponse.json({ error: 'Subject name is required' }, { status: 400 });
+    const body = await request.json().catch(() => null);
+    const parsed = parseBody(createSubjectSchema, body);
+    if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    const { name, description } = parsed.data;
 
     await ensureSchema();
 

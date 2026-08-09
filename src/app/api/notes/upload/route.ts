@@ -2,9 +2,37 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryOne, execute, generateId } from '@/lib/db';
 import { processNote, hashContent } from '@/lib/ai/pipeline';
+import { parseBody, uploadNoteSchema } from '@/lib/validation';
+import { encryptNote } from '@/lib/encryption';
 import type { Subject } from '@/lib/types';
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
+
+// Audit 3.3: explicit extension allowlist (checked server-side).
+const ALLOWED_EXTENSIONS = ['.md', '.txt', '.markdown', '.mdx', '.text'];
+
+/**
+ * Audit 3.3: content inspection, not just the filename.
+ * Rejects binary payloads (NUL bytes / high ratio of control chars) and
+ * non-allowlisted extensions, which can be spoofed by the client.
+ */
+function validateUpload(filename: string, content: string): { ok: true } | { ok: false; error: string } {
+  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    return { ok: false, error: 'Unsupported file type. Only .md, .txt, .markdown are allowed.' };
+  }
+  if (content.includes('\u0000')) {
+    return { ok: false, error: 'File appears to be binary. Only text notes are supported.' };
+  }
+  const controlRatio =
+    content.length > 0
+      ? (content.match(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g)?.length ?? 0) / content.length
+      : 0;
+  if (controlRatio > 0.1) {
+    return { ok: false, error: 'File appears to be binary. Only text notes are supported.' };
+  }
+  return { ok: true };
+}
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -16,11 +44,9 @@ export async function POST(request: NextRequest) {
   let filename: string;
   let content: string;
 
-  const contentType = request.headers.get('content-type') || '';
-
-  if (contentType.includes('multipart/form-data')) {
+  const contentType = request.headers.get('content-type') || '';    if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
-    subjectId = formData.get('subject_id') as string;
+    subjectId = (formData.get('subject_id') as string) || '';
     const file = formData.get('file') as File | null;
 
     if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -30,11 +56,21 @@ export async function POST(request: NextRequest) {
 
     filename = file.name;
     content = await file.text();
+
+    // Audit 3.3: validate by content inspection, not just extension.
+    const check = validateUpload(filename, content);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
   } else {
-    const body = await request.json();
-    subjectId = body.subject_id;
-    filename = body.filename || 'pasted-note.md';
-    content = body.content;
+    const body = await request.json().catch(() => null);
+    const parsed = parseBody(uploadNoteSchema, body);
+    if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    subjectId = parsed.data.subject_id;
+    filename = parsed.data.filename || 'pasted-note.md';
+    content = parsed.data.content;
+
+    // Audit 3.3: pasted notes default to .md but still must be text.
+    const check = validateUpload(filename, content);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
   }
 
   if (!subjectId || !content?.trim()) {
@@ -81,9 +117,11 @@ export async function POST(request: NextRequest) {
   }
 
   const versionId = generateId();
+  // Encryption at rest (fix 3.3): the stored version is ciphertext; the AI
+  // pipeline below still receives the plaintext `content` in memory.
   await execute(
     "INSERT INTO note_versions (id, note_file_id, content, created_at) VALUES (?, ?, ?, NOW())",
-    [versionId, noteFileId, content]
+    [versionId, noteFileId, encryptNote(content)]
   );
 
   try {

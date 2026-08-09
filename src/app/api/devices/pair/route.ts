@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession, ensureSchema } from '@/lib/auth';
 import { queryOne, queryAll, execute, generateId } from '@/lib/db';
+import { parseBody, deviceActionSchema } from '@/lib/validation';
 import { SignJWT } from 'jose';
 
 const jwtSecretStr = process.env.JWT_SECRET;
@@ -31,8 +32,10 @@ function generatePairingCode(): string {
 export async function POST(request: NextRequest) {
   await ensureSchema();
 
-  const body = await request.json();
-  const { action } = body;
+  const body = await request.json().catch(() => null);
+  const parsed = parseBody(deviceActionSchema, body);
+  if (!parsed.ok) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  const { action } = parsed.data;
 
   // --- action: generate_code ---
   // Called by dashboard UI. Requires an authenticated session.
@@ -63,7 +66,7 @@ export async function POST(request: NextRequest) {
   // Called by the watcher on first run. No session needed — uses the pairing code.
   // Exchanges pairing code for a signed device JWT token.
   if (action === 'redeem_code') {
-    const { pairing_code, device_name, folder_path, subject_id } = body;
+    const { pairing_code, device_name, folder_path, subject_id } = parsed.data;
 
     if (!pairing_code) {
       return NextResponse.json({ error: 'pairing_code is required' }, { status: 400 });
@@ -108,7 +111,7 @@ export async function POST(request: NextRequest) {
     const session = await getSession();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { device_id } = body;
+    const { device_id } = parsed.data;
     await execute(
       'DELETE FROM devices WHERE id = ? AND user_id = ?',
       [device_id, session.id]

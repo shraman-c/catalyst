@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 // Argon2id (prebuilt native binary, @node-rs/argon2) — kept external to
 // webpack via serverExternalPackages in next.config.js.
 import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
-import { queryOne, execute, generateId, initializeSchema } from './db';
+import { queryOne, execute, executeStrict, generateId, initializeSchema } from './db';
 import type { SessionUser } from './types';
 
 const secretStr = process.env.NEXTAUTH_SECRET;
@@ -15,6 +15,15 @@ if (!secretStr) {
   );
 }
 const SECRET = new TextEncoder().encode(secretStr);
+
+// Dual-key verification (audit 1.7 / fix 3.2): during a secret rotation window,
+// set NEXTAUTH_SECRET_PREVIOUS to the old value so existing sessions still
+// verify while new sessions are signed with the current secret. Remove the
+// previous value once all old JWTs have expired.
+const previousSecretStr = process.env.NEXTAUTH_SECRET_PREVIOUS;
+const VERIFY_SECRETS: Uint8Array[] = previousSecretStr
+  ? [SECRET, new TextEncoder().encode(previousSecretStr)]
+  : [SECRET];
 
 export const COOKIE_NAME_EXPORT = 'synthesizer_session';
 
@@ -31,22 +40,92 @@ export async function ensureSchema() {
   global.__catalystSchemaInit = true;
 }
 
+const SESSION_DAYS = 30;
+
+/**
+ * Create a session: sign a JWT (with a jti) AND persist a row in the sessions
+ * table. The DB row is the source of truth — see verifySession().
+ */
 export async function createSession(user: SessionUser): Promise<string> {
+  // The sessions table must exist before the row insert (fresh-DB first login).
+  await ensureSchema();
+  const jti = crypto.randomUUID();
   const token = await new SignJWT({ user })
     .setProtectedHeader({ alg: 'HS256' })
+    .setJti(jti)
     .setIssuedAt()
-    .setExpirationTime('30d')
+    .setExpirationTime(`${SESSION_DAYS}d`)
     .sign(SECRET);
+
+  // Best-effort row insert. If the write fails the token still verifies but
+  // has no backing row, so verifySession() will reject it — fail closed.
+  await execute(
+    `INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES ($1, $2, NOW(), NOW() + INTERVAL '${SESSION_DAYS} days')`,
+    [jti, user.id]
+  );
   return token;
 }
 
+/**
+ * Verify a JWT and check its backing session row is present, unrevoked, and
+ * unexpired. A token that verifies cryptographically but has no live session
+ * row (revoked, deleted, or legacy pre-migration) is rejected.
+ */
 export async function verifySession(token: string): Promise<SessionUser | null> {
+  await ensureSchema();
+  let payload: any;
   try {
-    const { payload } = await jwtVerify(token, SECRET);
-    return payload.user as SessionUser;
+    for (const secret of VERIFY_SECRETS) {
+      try {
+        const result = await jwtVerify(token, secret);
+        payload = result.payload;
+        break;
+      } catch {
+        // try next key
+      }
+    }
+    if (!payload) return null;
   } catch {
     return null;
   }
+
+  const jti = payload.jti as string | undefined;
+  if (!jti) return null; // legacy token without a session row
+
+  const session = await queryOne<{ id: string; revoked_at: string | null; expires_at: string }>(
+    'SELECT id, revoked_at, expires_at FROM sessions WHERE id = $1',
+    [jti]
+  );
+  if (!session) return null;
+  if (session.revoked_at) return null;
+  if (new Date(session.expires_at).getTime() < Date.now()) return null;
+
+  return payload.user as SessionUser;
+}
+
+/** Revoke a single session server-side (logout). */
+export async function revokeSession(token: string): Promise<void> {
+  try {
+    let jti: string | undefined;
+    for (const secret of VERIFY_SECRETS) {
+      try {
+        const { payload } = await jwtVerify(token, secret);
+        jti = payload.jti as string | undefined;
+        break;
+      } catch {
+        // try next key
+      }
+    }
+    if (!jti) return;
+    await execute('UPDATE sessions SET revoked_at = NOW() WHERE id = $1', [jti]);
+  } catch {
+    // Token unreadable — nothing to revoke.
+  }
+}
+
+/** Revoke every session for a user (password change / "log out all devices"). */
+export async function revokeAllSessions(userId: string): Promise<void> {
+  await execute('UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
 }
 
 export async function getSession(): Promise<SessionUser | null> {
@@ -147,14 +226,17 @@ export async function migrateLegacyPasswordHash(userId: string, password: string
 export async function createUser(email: string, password: string, name: string) {
   await ensureSchema();
   const id = generateId();
+  const normalizedEmail = email.trim().toLowerCase();
   const password_hash = await hashPassword(password);
 
   try {
-    await execute(
+    // executeStrict so a unique-violation on email actually throws and is
+    // caught below — the error-swallowing execute() would silently "succeed".
+    await executeStrict(
       "INSERT INTO users (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, NOW())",
-      [id, email, name || null, password_hash]
+      [id, normalizedEmail, name || null, password_hash]
     );
-    return { id, email, name: name || null };
+    return { id, email: normalizedEmail, name: name || null };
   } catch (err) {
     console.error('createUser error:', err);
     return null; // email already exists or other error
@@ -163,5 +245,7 @@ export async function createUser(email: string, password: string, name: string) 
 
 export async function findUserByEmail(email: string): Promise<any> {
   await ensureSchema();
-  return queryOne('SELECT * FROM users WHERE email = $1', [email]);
+  // Case-insensitive lookup (emails are stored lowercase for new signups;
+  // this also covers accounts created before normalization).
+  return queryOne('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
 }

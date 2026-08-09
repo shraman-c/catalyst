@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { marked, Marked } from 'marked';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 interface NoteDetail {
   note: { id: string; filename: string; source: string; updated_at: string };
@@ -139,7 +140,7 @@ export default function NoteDetailPage() {
               {data.content ? (
                 <div
                   className="markdown-content"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(data.content) }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(data.content)) }}
                 />
               ) : (
                 <div className="text-body-sm" style={{ opacity: 0.6 }}>No content available.</div>
@@ -219,15 +220,15 @@ const md = new Marked();
 md.use({
   gfm: true,
   breaks: true,
+  // marked v12 renderer API: positional (href, title, text) args.
   renderer: {
-    link({ href, title, tokens }) {
-      const text = this.parser.parseInline(tokens);
+    link(href: string, title: string | null | undefined, text: string) {
       if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
       const safeHref = href.replace(/"/g, '&quot;');
       const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
       return `<a href="${safeHref}"${safeTitle}>${text}</a>`;
     },
-    image({ href, title, text }) {
+    image(href: string, title: string | null, text: string) {
       if (!href || UNSAFE_PROTOCOL.test(href.trim())) return text;
       const safeSrc = href.replace(/"/g, '&quot;');
       const safeTitle = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';

@@ -404,6 +404,16 @@ export default function GraphPage() {
     }).filter(Boolean) as GraphEdge[];
   }, [graphData, clusteringActive, expandedClusters, focusSet]);
 
+  // Stable graphData reference for the engine. react-kapsule propagates props
+  // by reference (!==) on EVERY render, so an inline { nodes, links } literal
+  // would make the engine reload + reheat the simulation on every hover state
+  // change — nodes drift away from the cursor and the graph re-swirls.
+  // Memoizing means the engine only reloads when the graph actually changes.
+  const graphRenderData = useMemo(
+    () => ({ nodes: displayNodes, links: displayLinks }),
+    [displayNodes, displayLinks]
+  );
+
   // Neighbor lookup for hover/focus neighborhoods — keyed off the DISPLAY
   // graph (post-cluster) so hovering a cluster node highlights its
   // connected clusters, not just itself.
@@ -905,7 +915,7 @@ export default function GraphPage() {
             {ForceGraph2D && (
             <ForceGraph2D
               ref={graphRef}
-              graphData={{ nodes: displayNodes, links: displayLinks }}
+              graphData={graphRenderData}
               nodeId="id"
               width={renderWidth}
               height={renderHeight}

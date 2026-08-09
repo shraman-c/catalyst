@@ -5,9 +5,43 @@ Stage 3 (The Watcher / Local-to-Cloud Sync) — **complete**. All three stages f
 
 **Latest Updates (2026-08-08):**
 
+- **Card review-due count fix (2026-08-09)**: The "X CARDS DUE" numbers on the dashboard, subject page, and subject tiles were wrong. Two root causes: (1) the count query counted **all** new cards while the actual review queue only introduces `dailyCap − already-introduced-today` new cards per day (default 20) plus at most 200 overdue reviewed cards, so the display was systematically too high after pipeline uploads; (2) Postgres `COUNT(*)` returns a **string** (bigint), so the old routes passed `"35"` through and the dashboard's `reduce((sum, s) => sum + s.stats.cards_due_today, 0)` was doing string concatenation (`0 + "35"` = `"035"`). Fix: new shared module `src/lib/review.ts` (`getCardsDueCount`, `getDailyCap`, `countNewIntroducedToday`) that mirrors the `mode=due` review-queue logic exactly (same filters, same `LIMIT 200` cap, same daily-cap arithmetic, `Number()` coercion on all counts), used by `/api/subjects` and `/api/subjects/[id]`; the review route `/api/cards/[subjectId]` was refactored to use the same helpers so queue and count can never drift apart again. Also hardened "introduced today" to use a DB-side day boundary (`date_trunc('day', NOW())`) instead of a JS UTC date string. Verified: tsc clean, production build passes, and a live E2E (12 checks) against a production server — dashboard/subject counts now always equal the review-queue length, including the daily cap (30 new + 5 due → 25; after 2 introduced today → 23) and an empty edge case → 0; test data cleaned up.
+
+- **Graph hover stability fix (2026-08-09)**: Hovering nodes no longer makes them drift away from the cursor or makes the whole graph re-swirl. Root cause: `react-kapsule` (the React wrapper for `react-force-graph-2d`) propagates every prop by *reference* on each render, and the app passed `graphData={{ nodes, links }}` as an inline object literal — so every `onNodeHover`-triggered re-render produced a new reference, forcing the engine to reload the data and reheat the force simulation. Fix: memoize the object (`graphRenderData = useMemo(() => ({ nodes, links }), [displayNodes, displayLinks])` in `src/app/dashboard/subjects/[id]/graph/page.tsx`), so the engine only reloads when the graph actually changes (refetch, cluster toggle, focus mode, node drag). Verified: `tsc` clean, production build passes; code review confirmed no other prop reassigned on hover reheats the sim and no data-change path was affected.
+
 - **Argon2 password hashing + settings responsiveness (2026-08-08)**: Replaced the weak SHA-256 password hashing with Argon2id via @node-rs/argon2 (OWASP params: 19 MiB, 2 iterations). Existing accounts still log in via a legacy-SHA-256 compatibility path and are upgraded in place on next successful login (`migrateLegacyPasswordHash` in `src/lib/auth.ts`). Fresh signups store PHC-format `$argon2id$...` hashes. The native .node binary is kept out of webpack via `serverExternalPackages` plus a webpack-externals fallback in `next.config.js` (dev-mode RSC layer edge case). Seed scripts (`seed-large-graph.mjs`, `seed-supabase.mjs`, `seed-supabase.cjs`) now generate argon2 hashes too. Also fixed the settings page: the CONCISE/STANDARD/DETAILED verbosity row (and the identical appearance/density rows) overflowed on phones — 3 nowrap buttons in a non-wrapping flex container — now wrap cleanly with min-widths; verified zero horizontal overflow at 320/375/768px (`scripts/verify-argon2.mjs` + `scripts/responsive-audit.mjs`).
 - **Full Responsive Pass (2026-08-08)**: Audited every page (landing, dashboard, subject overview, notes list, note detail, flashcard review, knowledge graph) for all screen sizes with a Playwright overflow check at 375px / 768px / 1280px — zero horizontal overflow on all 21 page x viewport combinations (verified with scripts/responsive-audit.mjs). Fixes: graph view layout moved from inline styles to a .graph-layout CSS class so canvas + side panel collapse to a single stacked column under 768px (400px canvas height, side panel capped, no chunky double-border seam); landing feature bento switched from an inline grid-template-columns override (which beat the mobile media query) to a responsive .bento-grid-3 class; dashboard top-nav links hidden under 640px since the fixed bottom nav covers those routes (nav now wraps at 768px so 641-768px tablets do not overflow); note-detail page now uses the fluid .page-container instead of hard-coded 32/40px padding, with wrapping breadcrumb, tag rows, and tab bar; flashcard divider now uses calc(-1 * var(--card-pad)) so it stays flush with the card padding at both 40px (desktop) and 20px (mobile); wide markdown tables scroll horizontally instead of blowing out their tile; .page-container centers on ultra-wide screens; responsive clamps for landing hero/sections and review summary. Mobile screenshots in screenshots/responsive/.
 - **Obsidian-Style Graph Redesign (2026-08-08)**: Rewrote the knowledge graph view per a new Obsidian-inspired spec (design.md §4.2 updated to match). Nodes are now small filled circles sized by connection count (degree, ~4–13px) colored from a fixed 5-token category palette (signal/link/alert/surface/mono-panel) on an **always-dark canvas** (token inversion per §1, not a one-off theme). Edges are thin 1px low-opacity lines with no arrowheads; relationship type appears only on edge hover. Labels are the de-clutter mechanism: greedy collision-avoidance pass guarantees no overlapping labels — hub nodes (top ~12% by degree) label once the sim settles, hovering labels a node + its neighbors, and zooming reveals more labels progressively. Hover/selection dims the rest of the graph to ~22% (neighborhood focus), plus a N-hop focus mode (1–3 hops) equivalent to Obsidian's local graph. Physics use a circle-sized collision force; search highlights matches + dims the rest; clustering (past 50 nodes) renders as expandable circles. Verified on a 131-node / 154-edge test subject (Biology 102): dark sparse constellation at default zoom, hover dimming, progressive label reveal, search highlight.
+
+**Latest Updates (2026-08-09) — back-log of previously unlogged changes (reconstructed from git history):**
+
+- **Branding: "Synthesizer" → "Catalyst" (2026-08-05)**: Rebranded the product name across the dashboard nav logo (`src/app/dashboard/layout.tsx`), the root metadata + Open Graph title/description, and the landing-page nav logo (`src/app/layout.tsx`, `src/app/page.tsx`). Page title is now "Catalyst — Turn Notes Into Knowledge".
+- **Legacy-session healing after the SQLite → Postgres migration (2026-08-05)**: Sessions created under the old SQLite DB still verify (the JWT is self-contained) but reference a `user_id` with no matching Postgres row, which caused FK violations on writes (e.g. `subjects_user_id_fkey`). Added `ensureUserRow()` in `src/lib/auth.ts` — an atomic `INSERT ... ON CONFLICT (id) DO NOTHING` upsert that heals the row on every `getSession()`, and a `SENTINEL_PASSWORD_HASH` (`!healed-session-no-password!`) so a healed row can never be logged into with a password. The auth route returns a friendly 401 explaining this instead of a confusing "Invalid email or password".
+- **Dependency cleanup after migration (2026-08-05)**: Removed the now-unused `@libsql/client`, `@supabase/ssr`, `@supabase/supabase-js`, and `next-auth` packages from `package.json` (~545 lines of `package-lock.json`) — the app runs on `postgres` + custom `jose` JWTs, so the old SQLite/Supabase/next-auth client libs were dead weight.
+- **PROJECT_BRIEF.md added (2026-08-08)**: New top-level doc summarizing Catalyst's high-level summary, tech stack, routing architecture, and key dependencies.
+- **Graph hover rework — glow instead of dim (2026-08-08)**: Follow-up to the Obsidian-style redesign: hovering a node no longer dims the rest of the graph. Instead the hovered node gets an additive radial glow halo + 1.2× enlargement, its neighbors get a subtle ring and forced labels, and edges touching the hovered node brighten (~0.9) and thicken (~2.2px). Baseline edge alpha raised from 0.2 → 0.55 and width 1 → 1.5 so the un-hovered graph reads as clear structure lines. Dimming now only applies to selection and search. Also refactored the note-detail markdown sanitizer (`src/app/dashboard/subjects/[id]/notes/[noteId]/page.tsx`) into a single dedicated `Marked` instance with renderer overrides (marked v12 API) instead of per-call renderer options.
+- **"Remember Me" on login + notes-list icon actions (2026-08-08)**: Login form gained a REMEMBER ME checkbox (default on) — unchecked sets a session cookie, checked keeps the 30-day persistent cookie; cookie options centralized in `src/app/api/auth/route.ts`. The notes list replaced its text "VIEW →" / "DELETE" buttons with eye / trash SVG icon buttons (right-aligned actions column, `title` tooltips).
+- **SECURITY_AUDIT.md ignored (uncommitted)**: `.gitignore` now excludes `SECURITY_AUDIT.md` (same as the other planning/audit docs).
+
+**Latest Updates (2026-08-09) — Security audit remediation (SECURITY_AUDIT.md, audit dated 2026-08-08):**
+
+- **All Section 2 (deploy-blocking) items fixed and verified live**: server-side password validation (2.1), rate limiting + DB-backed account lockout (2.2 / audit 1.8), security headers (2.3), Zod validation on every body-accepting route (2.4), DOMPurify HTML sanitization (2.5), server-side session store with revocation + "log out of all devices" (2.6), generic signup error to stop enumeration (2.7), dependency audit + Next.js 14→15 upgrade + CI audit gate (2.8). Section 3: file-type validation by content inspection (3.1) and dual-key secret rotation (3.2) also fixed; 3.3/3.4/3.5 logged as tracked follow-ups below. `npm audit` is now **0 vulnerabilities** (was 2 high), `npx tsc --noEmit` clean, production build passes on Next.js 15.5.23, and every deploy-blocking item was verified with live curl checks against a production-mode server. Full per-item details + verification in the "Security Audit Remediation" section below.
+
+**Latest Updates (2026-08-09) — Note content encryption at rest (audit 3.3, now implemented):**
+
+- **`note_versions.content` is encrypted at rest with AES-256-GCM.** New `src/lib/encryption.ts` derives a 32-byte key from the new `NOTE_ENCRYPTION_KEY` env var and stores `enc:v1:<iv>:<authTag>:<ciphertext>` (base64). Production **fails closed** without the key — the app refuses to store note content in plaintext; dev falls back to plaintext with a warning. GCM authenticates each row, so a wrong key or tampered ciphertext throws on decrypt instead of returning garbage. Legacy plaintext rows pass through `decryptNote()` untouched.
+- **Hooks**: writes encrypt in `api/notes/upload` + `api/sync/files` (JSON **and** multipart paths); reads decrypt in `api/notes/[id]` and `api/export` (JSON + CSV). The AI pipeline still receives plaintext in memory — only storage is encrypted, so Groq/Pinecone/vector code needed zero changes.
+- **`.env.local.example`** documents `NOTE_ENCRYPTION_KEY` (generation command + rotation warning) alongside the existing `NEXTAUTH_SECRET_PREVIOUS` (3.2) block.
+- **Backfill**: `scripts/encrypt-existing-notes.mjs` (idempotent, `--dry-run` preview) encrypts pre-existing plaintext rows in place.
+- **Verified**: 6 unit checks on `encryption.ts` (round-trip, prefix, legacy passthrough, wrong-key rejection, prod fail-closed) + a live E2E against a production-mode server — DB row shows `enc:v1:` ciphertext with no plaintext marker, `GET /api/notes/[id]` and `/api/export?format=json` both return the exact original plaintext with zero `enc:v1:` leakage, and the full AI pipeline (3 nodes, 5 edges, 4 cards) completed through the encrypted-storage path. Test account cleaned from dev DB.
+
+**Latest Updates (2026-08-09) — Note content full-text search:**
+
+- **New `GET /api/notes/search`** — full-text search over note content that works *with* encryption at rest (fix 3.3). Design: decrypt-then-scan. One LATERAL query fetches the latest version of every visible note (user-scoped; optional `subject_id`), content is decrypted in memory and matched case-insensitively, ranked by filename match first then occurrence count (capped at 25 results), with up to 3 context snippets per note (~70 chars around each hit). No schema change, no new dependency, and **no plaintext is ever stored** — the DB keeps only `enc:v1:` ciphertext (verified live).
+- **Notes list page** (`notes/page.tsx`): debounced (300 ms) search box; while typing, the list swaps to a results view with highlighted `<mark>` matches (existing `.search-highlight` token), filename-match badge, match counts, and click-through to the note. ✕ clears back to the normal list.
+- **Scale note**: decrypt-then-scan is O(corpus) per query — fine for a single user (notes ≤ 2 MB each); if the corpus ever exceeds ~100-200 MB total, swap to a write-time index (pg_trgm side table accepting the plaintext-token tradeoff, or a Pinecone chunk namespace for semantic search). Documented in the route header.
+- **Verified live** (production-mode server, key set): per-subject search finds the right note with a snippet containing the marker; case-insensitive; global search (no `subject_id` — a `null`→`undefined` zod parse fix was found and fixed during testing); filename matches flagged; no-match → empty; missing `q` → 400; cross-user `subject_id` → 404; DB still ciphertext after search; `tsc` clean, production build passes.
+- **Keyboard navigation (2026-08-09)**: while the search box is focused, ArrowDown/ArrowUp move a highlighted active row (wrapping), Enter opens it, Esc clears the search (same gesture as the graph page). Implemented with the accessible combobox pattern — the input keeps focus and `aria-activedescendant`/`role=option`/`aria-selected` track the active row, which auto-selects the first result. Active row styled with a signal border. Review fixes applied: arrows/Enter are ignored while a search is in flight (prevents opening stale results), scroll-into-view now fires only on manual arrow navigation (no page jump when a new result batch auto-selects row 0), and the input is wrapped in a `<form>` so mobile keyboards' Search/Go key works (clear button is `type=button`).
 
 **Previous Updates (2026-08-05):**
 - **Pipeline Performance Optimization (analysis time reduction)**: Batched + parallelized all Pinecone calls (one embed + one multi-record upsert per batch instead of ~2 sequential calls per concept/card) and combined concept extraction + flashcard generation into a single LLM call per chunk. Per-chunk analysis dropped from ~45–50s to ~14–18s (measured) — see the "Pipeline Performance Optimization" section below.
@@ -435,3 +469,95 @@ Stage 3 (The Watcher / Local-to-Cloud Sync) — **complete**. All three stages f
 - End-to-end verified: nodes/edges/cards persist in Postgres, embeddings stored and queryable in both Pinecone namespaces, `npx tsc --noEmit` clean.
 - Measured ~14–18s per chunk (LLM output size varies) — down from the ~45–50s equivalent the old sequential code needed for the same content.
 - ⏳ Remaining lever (not yet implemented): #2 — process chunks in parallel with bounded concurrency (multi-chunk notes still process sequentially).
+
+---
+
+## Security Audit Remediation (2026-08-09)
+
+**Audit**: `SECURITY_AUDIT.md` (dated 2026-08-08). Scope: pre-production hardening. All Section 2 (deploy-blocking) items fixed **and verified live**; Section 3 items 3.1–3.2 fixed; 3.3–3.5 logged as tracked follow-ups. Global verification state: `npm audit` → 0 vulnerabilities (was 2 high), `npx tsc --noEmit` clean, `npm run build` passes (Next.js 15.5.23), and every deploy-blocking item below was exercised with curl against a production-mode server (`next start`).
+
+### 2.1 — Server-side password validation
+- `src/lib/validation.ts` `authSignupSchema`: password min 8 / max 128 chars + email format (trimmed/lowercased), enforced in `/api/auth` before any DB write — client form is not the enforcement point.
+- **Verified**: raw `POST /api/auth` with a 1-char password → `400`.
+
+### 2.2 — Rate limiting + account lockout
+- In-memory sliding-window limiter (`src/lib/rate-limit.ts`): login 10/min per IP + 5/min per email (stops distributed brute force and targeted account attacks), signup 5/min per IP; blocked requests return `429` with `Retry-After`. ⚠️ In-memory is single-Node-instance only — the serverless swap path (Upstash Ratelimit + Redis, or Vercel built-in limits) is logged as a follow-up below.
+- DB-backed exponential backoff (audit 1.8): `users.failed_attempts` / `users.locked_until` columns; 5 failed logins → 5-minute lock, doubling to a 24 h cap; successful login resets the counter.
+- **Verified**: 6 rapid signups → `400 ×5` then `429` on the 6th; 5 wrong-password logins → `401 ×5`, then (after the rate-limit window) the 6th attempt → `423 Locked` with `Retry-After`. The throwaway lockout-test account was deleted via the app's own account-deletion API and the dev DB was confirmed clean afterward.
+
+### 2.3 — Security headers
+- `next.config.js` `headers()`: `Content-Security-Policy` (restrictive start — `default-src 'self'`, allowlisted Google Fonts origins, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security` (1 year, includeSubDomains, preload), `Referrer-Policy: strict-origin-when-cross-origin` (tokens must not leak via Referer), `Permissions-Policy` (camera/microphone/geolocation/payment/usb all denied).
+- **Verified**: `curl -I` against the production build shows all six headers with the expected values.
+- Follow-up logged below: CSP `'unsafe-inline'` is currently required by the inline theme-bootstrap script — a nonce-based CSP is the tracked hardening step.
+
+### 2.4 — Server-side Zod validation on every body route
+- `src/lib/validation.ts` defines shared schemas; `parseBody()` returns a generic `400 "Invalid request body"` (no internal schema details leaked). Wired into: `auth`, `settings`, `subjects`, `subjects/[id]`, `notes/upload`, `sync/files`, `devices/pair`, `cards/[subjectId]`, `graph/[subjectId]` — every route that accepts a body, including all routes that write AI-processed content.
+- **Verified**: malformed `PATCH /api/settings` (`card_density: "banana"`) → `400`.
+
+### 2.5 — HTML sanitization on rendered content
+- `src/lib/sanitize.ts` (`isomorphic-dompurify`, allowlist profile) now wraps the `marked.parse()` output on the note-detail rendered tab — defense-in-depth on top of the existing markdown escaping, so a `<script>`/`onerror` payload survives neither layer. Server- and client-safe (RSC + client components).
+- The audit's flashcard-review flag (3.5) was checked: the review page renders card front/back as plain React text nodes (auto-escaped) — no `dangerouslySetInnerHTML` exists there; card content is also schema-validated on write. Grep-verified across `src/` (only remaining `dangerouslySetInnerHTML` uses are the note-detail rendered tab, now sanitized, and the theme-bootstrap inline script in `layout.tsx`, which is static app code, not user content).
+- ⚠️ Browser-based injection verification pending — Chrome is not installed on the dev machine (same caveat as the graph visual tests); the sanitizer + renderer double layer is code-verified.
+
+### 2.6 — Server-side session store + revocation
+- New `sessions` table (id = JWT `jti`, user_id FK, expires_at, revoked_at) created in `initializeSchema()`; `createSession()` persists a row per issued token and `verifySession()` rejects any token without a live unrevoked row — so a captured token dies on logout, password change, or "log out all devices" even if the attacker never deletes the cookie.
+- Logout (`DELETE /api/auth`) now revokes the session server-side, not just clears the cookie. New `logout_all` action + "LOG OUT OF ALL DEVICES" button on the settings page (audit 1.5).
+- Password-change hook: `revokeAllSessions(userId)` is the documented call for a future password-change endpoint (none exists today) — tracked follow-up below.
+- Bug found during review and fixed: `createSession`/`verifySession` now call `ensureSchema()` first, so a fresh database (first login ever) creates the `sessions` table before the row insert — previously the first login would have silently failed to persist its session.
+- **Verified live**: signup → session cookie → account deletion revoked everything server-side (the deleted account's session no longer authenticated; follow-up requests returned `401`).
+
+### 2.7 — Signup user enumeration
+- Signup now returns one generic `409` for both "email already registered" and any other failure — the API never confirms whether an account exists. (The account-nudging UX of the old "already registered" message is intentionally dropped rather than leaked.)
+- Real bug found during live testing: duplicate-email signup previously returned `200 success` (the DB layer swallows unique-violation errors, so `createUser` "succeeded"). Added an explicit case-insensitive pre-check in the route **and** switched `createUser` to `executeStrict` so the INSERT failure is real.
+- **Verified**: fresh signup → `200`; second signup with the same email → `409` with the generic message.
+
+### 2.8 — Dependency audit + Next.js 15 upgrade + CI gate
+- Next.js **14.2.29 → 15.5.23** (15.x per the user's decision; `npm audit fix --force` would have jumped to 16). Next 15 breaking change handled: route-handler `params` are now `Promise`s, so `cards/[subjectId]`, `graph/[subjectId]`, `notes/[id]`, `subjects/[id]` all `await params`. (All page components were already client-side `useParams()`, so no page changes were needed.) A `marked` 12.0.2 type regression surfaced during the install bump — the note-detail renderer overrides were updated to the installed v12 positional-args API (`(href, title, text)`).
+- Remaining transitive highs fixed via `package.json` `overrides`: `postcss` 8.4.31 → 8.5.26 and `sharp` 0.34.5 → 0.35.3 (patched libvips CVEs). The app never imports `next/image`, so `sharp` is unused — the override just pins a patched build rather than deleting Next's optional dep.
+- `npm audit` → **0 vulnerabilities** (was 2 high).
+- CI: new `.github/workflows/security-audit.yml` runs `npm audit --audit-level=high` on push/PR and fails the build on any new high/critical finding.
+
+### 3.1 — File upload type validation by content inspection
+- `notes/upload` and `sync/files`: explicit extension allowlist (`.md`, `.txt`, `.mdx`, `.markdown`) **plus** content sniffing — NUL bytes / binary magic rejection — so a spoofed extension can't smuggle arbitrary files. Existing 2 MB cap retained.
+
+### 3.2 — Dual-key `NEXTAUTH_SECRET` rotation
+- `src/lib/auth.ts`: if `NEXTAUTH_SECRET_PREVIOUS` is set, tokens signed with the old secret still verify during the rotation window while new sessions use the current secret — rotation no longer force-logs-out every user. Remove the previous value once old JWTs expire.
+
+### 3.3 — Note content encryption at rest — **implemented (2026-08-09)**
+- App-level AES-256-GCM (`src/lib/encryption.ts`, key from `NOTE_ENCRYPTION_KEY`, sha256-derived 32-byte key, `enc:v1:` format). Writes encrypt in `notes/upload` + `sync/files`; reads decrypt in `notes/[id]` + `export`. Production fails closed without the key; dev stores plaintext with a warning. GCM authenticates rows (tamper/wrong-key → throw). Legacy plaintext rows pass through; backfill with `node --env-file=.env.local scripts/encrypt-existing-notes.mjs` (idempotent, `--dry-run` preview).
+- **Verified**: unit checks (round-trip / prefix / legacy passthrough / wrong-key rejection / prod fail-closed) + live E2E (DB shows `enc:v1:` ciphertext, note read + export return exact plaintext, no `enc:v1:` leakage, pipeline completes).
+- **Deploy step**: set `NOTE_ENCRYPTION_KEY` (generate via `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`), then run the backfill script once. Keep the key stable — rotating it makes previously encrypted notes undecryptable.
+- Note: full-text SQL search over note content is not possible on ciphertext, so search is implemented as decrypt-then-scan (`GET /api/notes/search`, 2026-08-09) — no plaintext index is kept.
+
+### 3.4 — Stack trace leakage — **verified**
+- Production build (`next start`, NODE_ENV=production) + a forced genuine server error (unreachable `DATABASE_URL`) → API response is `500` with a generic/empty body; grep confirmed **no stack trace** (`at node_modules/...` / `at async`) leaks to the client. Next's stack-trace overlay is dev-mode-only.
+
+### 3.5 — Production `NODE_ENV` — **tracked follow-up**
+- Confirm `NODE_ENV=production` on the actual deployment platform as a deploy-checklist item (deploy-time verification, not code).
+
+### Other follow-ups logged
+- **Serverless rate limiter swap**: the in-memory limiter (2.2) is correct for a single Node instance (local dev) but must be swapped for a shared store (Upstash Ratelimit + Redis or Vercel's built-in limits) before any serverless deploy.
+- **CSP nonce**: replace `'unsafe-inline'` in `script-src` with a per-request nonce for the theme-bootstrap script.
+- **Password-change endpoint**: when built, it must call `revokeAllSessions(userId)` (hook already exists, 2.6).
+
+### Deploy note (read before shipping)
+- **Existing sessions are invalidated once on first deploy of this change.** The new `sessions` table has no rows for JWTs issued before this pass, so `verifySession()` rejects every pre-existing token → all users are logged out exactly once and must sign back in. This is inherent to moving from stateless-JWT to server-backed sessions (audit 1.4–1.6) and is a one-time event; it is intentional.
+
+### Residual findings (accepted / documented, not blocking)
+- **Lockout status code is an account-existence oracle**: a locked real account returns `423`, a nonexistent email returns `401`. Low severity because the email rate limit (5/min) caps probing and because an attacker must first lock an account (5 failed attempts) — accepted, with the standard `Retry-After` semantics.
+- **In-memory rate limiter collapses to a single shared bucket when no proxy headers exist**: `clientIp()` falls back to `'unknown'` without `x-forwarded-for`/`x-real-ip`, so a bare Node server (no reverse proxy) applies per-IP limits globally across all clients. Fine for the single-user localhost dev deployment; must be addressed by the serverless/upstash swap follow-up (or by placing the app behind a proxy that sets the headers) before multi-user self-hosting.
+- **`ensureSchema()` retries the full DDL per request while the DB is down** (init flag only set on success) — pre-existing pattern, now on the auth hot path; acceptable, but a failure cooldown would be a future hardening.
+
+### Verification summary (live, production-mode server)
+| Item | Test | Result |
+|---|---|---|
+| 2.3 | `curl -I /` — 6 security headers | all present ✓ |
+| 2.1 | 1-char password signup | 400 ✓ |
+| 2.7 | duplicate email signup | 409 generic ✓ |
+| 2.4 | malformed settings PATCH | 400 ✓ |
+| 1.8/2.2 | 5 failed logins → 6th | 401×5 then 423 ✓ |
+| 2.2 | 6 rapid signups | 400×5 then 429 ✓ |
+| 3.4 | forced 500 (unreachable DB) | generic body, no stack ✓ |
+| 2.6 | account deletion | session revoked, follow-ups 401 ✓ |
+| 2.8 | `npm audit` | 0 vulnerabilities ✓ |
+| — | `tsc --noEmit` / `npm run build` | clean ✓ |

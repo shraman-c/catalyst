@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, type KeyboardEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -15,6 +15,40 @@ interface NoteFile {
   node_count: number;
 }
 
+interface SearchResult {
+  id: string;
+  filename: string;
+  updated_at: string;
+  subject_name: string;
+  match_count: number;
+  filename_matched: boolean;
+  snippets: string[];
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Renders `text` with case-insensitive occurrences of `query` wrapped in <mark>. */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  // escapeRegExp output is regex-safe by construction, so this cannot throw.
+  const re = new RegExp(`(${escapeRegExp(q)})`, 'gi');
+  const needle = q.toLowerCase();
+  return (
+    <>
+      {text.split(re).map((part, i) =>
+        part.toLowerCase() === needle ? (
+          <mark key={i} className="search-highlight">{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export default function NotesListPage() {
   const params = useParams();
   const router = useRouter();
@@ -25,6 +59,18 @@ export default function NotesListPage() {
   const [loading, setLoading] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Full-text content search (audit-adjacent feature; decrypt-then-scan on the server)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Sequence guard: drops responses from stale (superseded) search requests
+  // so a slow older request can't overwrite newer results.
+  const searchSeqRef = useRef(0);
+  // Keyboard navigation over the visible result list (arrows / Enter / Esc).
+  // -1 = nothing selected; otherwise an index into searchResults.
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   const fetchNotes = useCallback(async () => {
     const [notesRes, subjectRes] = await Promise.all([
@@ -45,6 +91,103 @@ export default function NotesListPage() {
 
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
 
+  // Clear any pending debounce timer on unmount
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
+  // Reset the active row whenever a new result set arrives (auto-select first).
+  useEffect(() => {
+    setActiveIndex(searchResults && searchResults.length > 0 ? 0 : -1);
+  }, [searchResults]);
+
+  const runSearch = useCallback(async (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed) {
+      searchSeqRef.current++;
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    const seq = ++searchSeqRef.current;
+    setSearching(true);
+    try {
+      const res = await fetch(
+        `/api/notes/search?q=${encodeURIComponent(trimmed)}&subject_id=${encodeURIComponent(subjectId)}`
+      );
+      if (seq !== searchSeqRef.current) return; // superseded by a newer search
+      if (res.status === 401) {
+        setSearching(false);
+        router.push('/');
+        return;
+      }
+      const data = res.ok ? await res.json() : { results: [] };
+      if (seq !== searchSeqRef.current) return;
+      setSearchResults(data.results || []);
+    } catch {
+      if (seq !== searchSeqRef.current) return;
+      setSearchResults([]);
+    }
+    if (seq === searchSeqRef.current) setSearching(false);
+  }, [subjectId, router]);
+
+  function handleSearchChange(value: string) {
+    setSearchQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => runSearch(value), 300);
+  }
+
+  function clearSearch() {
+    searchSeqRef.current++; // invalidate any in-flight search
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearchQuery('');
+    setSearchResults(null);
+    setSearching(false);
+  }
+
+  function openResult(result: SearchResult | undefined) {
+    if (!result) return;
+    router.push(`/dashboard/subjects/${subjectId}/notes/${result.id}`);
+  }
+
+  /** Arrow keys move the active row (wrapping), Enter opens it, Esc clears. */
+  function handleSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      if (searchQuery) {
+        e.preventDefault();
+        clearSearch();
+      }
+      return;
+    }
+    // Don't navigate while a search is in flight: the listbox still shows the
+    // previous query's results, and Enter could open a stale note.
+    if (searching) return;
+    const results = searchResults ?? [];
+    if (results.length === 0) return;
+    switch (e.key) {
+      case 'ArrowDown': {
+        e.preventDefault();
+        const next = activeIndex < 0 ? 0 : (activeIndex + 1) % results.length;
+        setActiveIndex(next);
+        // Scroll imperatively here (not in an effect) so the page only moves
+        // on manual arrow navigation — never on auto-select of a new batch.
+        document.getElementById(`search-result-${next}`)?.scrollIntoView({ block: 'nearest' });
+        break;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        const next = activeIndex <= 0 ? results.length - 1 : activeIndex - 1;
+        setActiveIndex(next);
+        document.getElementById(`search-result-${next}`)?.scrollIntoView({ block: 'nearest' });
+        break;
+      }
+      case 'Enter':
+        e.preventDefault();
+        openResult(results[activeIndex >= 0 ? activeIndex : 0]);
+        break;
+    }
+  }
+
   async function handleDeleteNote(noteId: string) {
     setDeletingId(noteId);
     try {
@@ -60,6 +203,8 @@ export default function NotesListPage() {
     setDeletingId(null);
     setConfirmDeleteId(null);
   }
+
+  const searchingActive = searchQuery.trim().length > 0;
 
   return (
     <div className="page-container">
@@ -78,15 +223,111 @@ export default function NotesListPage() {
       <div className="page-header">
         <div>
           <h1 className="text-display-lg">NOTE FILES</h1>
-          <p className="text-mono" style={{ opacity: 0.6, marginTop: '4px' }}>{notes.length} FILES SYNCED</p>
+          <p className="text-mono" style={{ opacity: 0.6, marginTop: '4px' }}>
+            {searchingActive
+              ? 'SEARCH RESULTS'
+              : `${notes.length} FILES SYNCED`}
+          </p>
         </div>
         <Link href={`/dashboard/subjects/${subjectId}`} className="btn btn-primary" style={{ textDecoration: 'none' }}>
           + ADD NOTE
         </Link>
       </div>
 
-      {loading ? (
+      {/* Full-text content search — a form so the mobile keyboard's Search/Go
+          key works (it fires submit, not keydown); Enter here runs instantly. */}
+      <form
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          runSearch(searchQuery);
+        }}
+        style={{ marginBottom: '20px', display: 'flex', gap: '8px', alignItems: 'center' }}
+      >
+        <input
+          className="input-ink"
+          type="search"
+          placeholder="SEARCH NOTE CONTENT…"
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
+          aria-label="Search note content"
+          role="combobox"
+          aria-expanded={searchingActive && (searchResults?.length ?? 0) > 0}
+          aria-controls="search-results"
+          aria-autocomplete="list"
+          aria-activedescendant={activeIndex >= 0 ? `search-result-${activeIndex}` : undefined}
+          style={{ maxWidth: '480px' }}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={clearSearch}
+            aria-label="Clear search"
+            style={{ padding: '10px 14px', fontSize: '14px' }}
+          >
+            ✕
+          </button>
+        )}
+      </form>
+
+      {loading && !searchingActive ? (
         <div className="processing-block">LOADING NOTES...</div>
+      ) : searchingActive ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <p className="text-mono" style={{ opacity: 0.6, marginBottom: '4px' }}>
+            {searching
+              ? `SEARCHING FOR "${searchQuery.trim().toUpperCase()}"…`
+              : `${searchResults?.length ?? 0} MATCH(ES) FOR "${searchQuery.trim().toUpperCase()}"`}
+          </p>
+
+          {!searching && (searchResults?.length ?? 0) === 0 ? (
+            <div className="empty-state">
+              <p className="empty-state__text">NO MATCHES.</p>
+              <p className="text-mono" style={{ opacity: 0.5, marginTop: '8px' }}>
+                SEARCH FILENAMES AND NOTE CONTENT
+              </p>
+            </div>
+          ) : (
+            <div id="search-results" role="listbox" aria-label="Note search results" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(searchResults ?? []).map((result, resultIndex) => (
+                <Link
+                  key={result.id}
+                  id={`search-result-${resultIndex}`}
+                  href={`/dashboard/subjects/${subjectId}/notes/${result.id}`}
+                  className="bento-tile bento-tile-hoverable"
+                  role="option"
+                  aria-selected={resultIndex === activeIndex}
+                  style={{
+                    textDecoration: 'none',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    borderColor: resultIndex === activeIndex ? 'var(--signal)' : undefined,
+                    backgroundColor: resultIndex === activeIndex ? 'var(--mono-panel)' : undefined,
+                  }}
+                >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span className="text-body-sm" style={{ fontWeight: 600 }}>{result.filename}</span>
+                  <span className="mono-tag">
+                    {result.match_count} MATCH{result.match_count === 1 ? '' : 'ES'}
+                  </span>
+                </div>
+                {result.filename_matched && (
+                  <span className="mono-tag mono-tag-signal" style={{ width: 'fit-content' }}>FILENAME MATCH</span>
+                )}
+                {result.snippets.map((snippet, i) => (
+                  <p key={i} className="text-body-sm" style={{ opacity: 0.85, margin: 0 }}>
+                    <Highlight text={snippet} query={searchQuery} />
+                  </p>
+                ))}
+              </Link>
+              ))}
+            </div>
+          )}
+        </div>
       ) : notes.length === 0 ? (
         <div className="empty-state">
           <p className="empty-state__text" style={{ marginBottom: '16px' }}>NO NOTES YET.</p>
