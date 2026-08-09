@@ -503,13 +503,7 @@ export default function GraphPage() {
     // still prevents overlap), so a sparse 50+ node graph shows its hubs
     // at default zoom. Smaller tiers need more zoom to earn a label.
     const minZoomFor = (n: any): number => {
-      if (n.__isCluster) return 0;
-      const d = degOf(n);
-      if (hubIdsRef.current.has(n.id)) return 0;
-      if (d >= 5) return 0.4;
-      if (d >= 3) return 0.6;
-      if (d >= 2) return 0.9;
-      return 1.3;
+      return 0; // Always attempt to show labels regardless of zoom level
     };
 
     const q = searchRef.current.trim().toLowerCase();
