@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTheme } from '@/lib/ThemeProvider';
+import { PWAInstallSection } from '@/components/PWAInstall';
 
 interface Preferences {
   card_density: number;
@@ -249,6 +250,9 @@ export default function SettingsPage() {
               MANAGE DEVICES →
             </Link>
           </div>
+
+          {/* PWA install (Part 1) */}
+          <PWAInstallSection />
 
           {/* Data Export (Stage 5) */}
           <div className="bento-tile">
