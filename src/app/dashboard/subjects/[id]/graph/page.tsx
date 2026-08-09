@@ -58,30 +58,22 @@ interface Cluster {
 }
 
 // ---------------------------------------------------------------
-// Obsidian-style graph: ALWAYS a dark canvas.
-//
-// Per design.md §1, dark mode is the base↔ink inversion — the graph
-// canvas pins that inverted pairing regardless of the app's theme:
-//   background = ink value (in light mode the dark ink, in dark mode
-//   the dark base)  →  #111111
-//   foreground = base value (in light mode the light base, in dark
-//   mode the light ink)  →  #F2F0E9
-// We read the CSS vars at runtime and swap, so it always resolves to
-// the same dark canvas without a one-off hard-coded theme.
+// Theme-aware graph canvas — uses the app's native --base and --ink
+// so the graph integrates with the current light/dark theme.
 // ---------------------------------------------------------------
 const FONT_MONO = "'IBM Plex Mono', 'JetBrains Mono', monospace";
 
 // Small fixed set of category colors — all drawn from the existing
 // design.md palette (signal / link / alert / surface / mono-panel).
-// No new color scheme is introduced. The category for a node is derived
-// deterministically from its name (the data model has no category field
-// yet), so colors are stable across renders and sessions.
-const CATEGORY_COLORS = ['#F4B400', '#2E7D5B', '#D64545', '#FFFFFF', '#E7E3D8'];
+// The category for a node is derived deterministically from its name,
+// so colors are stable across renders and sessions.
+const CATEGORY_COLORS_DARK = ['#F4B400', '#2E7D5B', '#D64545', '#E7E3D8', '#9F86C0'];
+const CATEGORY_COLORS_LIGHT = ['#B8860B', '#1B5E3A', '#B83030', '#444444', '#6A3D9A'];
 
 function categoryIndex(name: string): number {
   let h = 5381;
   for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) | 0;
-  return Math.abs(h) % CATEGORY_COLORS.length;
+  return Math.abs(h) % CATEGORY_COLORS_DARK.length;
 }
 
 // Auto-clustering threshold (design.md §4.2, AppFlow.md §3)
@@ -234,18 +226,16 @@ export default function GraphPage() {
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusHops, setFocusHops] = useState(1);
 
-  // Theme-aware canvas palette — read CSS vars at runtime and pin the
-  // dark pairing (design.md §1 inversion: bg = ink value, fg = base value).
-  const [themeColors, setThemeColors] = useState({ bg: '#111111', fg: '#F2F0E9' });
+  // Theme-aware canvas palette — reads CSS vars at runtime and follows
+  // the app's current light/dark theme natively (no forced inversion).
+  const [themeColors, setThemeColors] = useState({ bg: '#F2F0E9', fg: '#111111', isDark: false });
   useEffect(() => {
     const read = () => {
       const cs = getComputedStyle(document.documentElement);
       const base = cs.getPropertyValue('--base').trim() || '#F2F0E9';
       const ink = cs.getPropertyValue('--ink').trim() || '#111111';
-      // Light theme: --ink is dark → canvas bg. Dark theme: --base is dark.
-      const isDark = cs.getPropertyValue('--base').trim() === '#111111' ||
-        document.documentElement.classList.contains('dark');
-      setThemeColors(isDark ? { bg: base, fg: ink } : { bg: ink, fg: base });
+      const isDark = document.documentElement.classList.contains('dark');
+      setThemeColors({ bg: base, fg: ink, isDark });
     };
     read();
     const mo = new MutationObserver(read);
@@ -513,13 +503,7 @@ export default function GraphPage() {
     // still prevents overlap), so a sparse 50+ node graph shows its hubs
     // at default zoom. Smaller tiers need more zoom to earn a label.
     const minZoomFor = (n: any): number => {
-      if (n.__isCluster) return 0;
-      const d = degOf(n);
-      if (hubIdsRef.current.has(n.id)) return 0;
-      if (d >= 5) return 0.4;
-      if (d >= 3) return 0.6;
-      if (d >= 2) return 0.9;
-      return 1.3;
+      return 0; // Always attempt to show labels regardless of zoom level
     };
 
     const q = searchRef.current.trim().toLowerCase();
@@ -675,20 +659,24 @@ export default function GraphPage() {
     if (sourceFilter) queryParams.set('note_id', sourceFilter);
     if (showClusters) queryParams.set('cluster', 'true');
 
-    const res = await fetch(`/api/graph/${subjectId}?${queryParams.toString()}`);
-    if (res.status === 401) { router.push('/'); return; }
-    if (res.ok) {
-      const data = await res.json();
-      const edges = data.edges.map((e: any) => ({
-        ...e,
-        source: e.from_node_id,
-        target: e.to_node_id,
-      }));
-      setGraphData({ ...data, edges });
-      fitRef.current = false;
-      settledRef.current = false;
-      setExpandedClusters(new Set());
-      setFocusNodeId(null);
+    try {
+      const res = await fetch(`/api/graph/${subjectId}?${queryParams.toString()}`);
+      if (res.status === 401) { router.push('/'); return; }
+      if (res.ok) {
+        const data = await res.json();
+        const edges = data.edges.map((e: any) => ({
+          ...e,
+          source: e.from_node_id,
+          target: e.to_node_id,
+        }));
+        setGraphData({ ...data, edges });
+        fitRef.current = false;
+        settledRef.current = false;
+        setExpandedClusters(new Set());
+        setFocusNodeId(null);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch graph data. You might be offline.", err);
     }
     setLoading(false);
   }, [subjectId, router, timeFilter, sourceFilter, showClusters]);
@@ -717,6 +705,13 @@ export default function GraphPage() {
   }, []);
 
   function handleNodeClick(node: any) {
+    // Auto scale and zoom to the clicked concept/cluster
+    const fg = graphRef.current;
+    if (fg && node.x !== undefined && node.y !== undefined) {
+      fg.centerAt(node.x, node.y, 600);
+      fg.zoom(node.__isCluster ? 2 : 3, 600);
+    }
+
     if (node.__isCluster) {
       setExpandedClusters(prev => {
         const next = new Set(prev);
@@ -727,17 +722,18 @@ export default function GraphPage() {
       return;
     }
     setSelectedNode(node);
+    
+    // Automatically focus on the clicked topic and its immediate neighbors (subtopics)
+    setFocusNodeId(node.id);
+    setFocusHops(1);
+    fitRef.current = false;
+    
     setEditMode(false);
     setAddEdgeMode(false);
     setEdgeTargetId('');
     setEdgeRelType('related to');
     setEditName(node.name);
     setEditDef(node.definition);
-    // Optional: pan/center the graph on the clicked node
-    const fg = graphRef.current;
-    if (fg && node.x !== undefined && node.y !== undefined) {
-      fg.centerAt(node.x, node.y, 350);
-    }
   }
 
   async function handleSaveEdit() {
@@ -800,7 +796,7 @@ export default function GraphPage() {
         <span className="text-mono">KNOWLEDGE GRAPH</span>
       </div>
 
-      <div className="page-header">
+      <div className="page-header" style={{ paddingBottom: '4px', marginBottom: '12px' }}>
         <div>
           <h1 className="text-display-lg">KNOWLEDGE GRAPH</h1>
           {graphData && (
@@ -833,7 +829,7 @@ export default function GraphPage() {
       </div>
 
       {/* Filters */}
-      <div className="bento-tile" style={{ marginBottom: '16px', padding: '12px 16px' }}>
+      <div className="bento-tile" style={{ marginBottom: '8px', padding: '8px 16px' }}>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Live search — highlights matches on the canvas as you type */}
           <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '200px', alignItems: 'center' }}>
@@ -882,12 +878,13 @@ export default function GraphPage() {
       ) : (
         <div className="graph-layout">
 
-          {/* Graph canvas — always dark (design.md §1 inversion) */}
+          {/* Graph canvas — follows app theme */}
           <div
             ref={containerRef}
             className="graph-container"
             style={{
-              height: '600px',
+              height: 'calc(100vh - 200px)',
+              minHeight: '500px',
               position: 'relative',
               backgroundColor: themeColors.bg,
             }}
@@ -971,12 +968,16 @@ export default function GraphPage() {
                 if (isHovered) {
                   const glowR = r + 12 / globalScale;
                   const grad = ctx.createRadialGradient(x, y, r * 0.5, x, y, glowR);
+                  const catColors = themeColors.isDark ? CATEGORY_COLORS_DARK : CATEGORY_COLORS_LIGHT;
                   const baseColor = node.__isCluster
                     ? themeColors.fg
-                    : CATEGORY_COLORS[categoryIndex(node.name || '?')];
-                  grad.addColorStop(0, baseColor + '60');
-                  grad.addColorStop(0.6, baseColor + '20');
-                  grad.addColorStop(1, baseColor + '00');
+                    : catColors[categoryIndex(node.name || '?')];
+                  const hex = baseColor.length === 4 
+                    ? '#' + baseColor[1] + baseColor[1] + baseColor[2] + baseColor[2] + baseColor[3] + baseColor[3]
+                    : baseColor;
+                  grad.addColorStop(0, hex + '60');
+                  grad.addColorStop(0.6, hex + '20');
+                  grad.addColorStop(1, hex + '00');
                   ctx.beginPath();
                   ctx.arc(x, y, glowR, 0, Math.PI * 2);
                   ctx.fillStyle = grad;
@@ -989,9 +990,10 @@ export default function GraphPage() {
                 // Soft flat filled circle
                 ctx.beginPath();
                 ctx.arc(x, y, drawR, 0, Math.PI * 2);
+                const catColors2 = themeColors.isDark ? CATEGORY_COLORS_DARK : CATEGORY_COLORS_LIGHT;
                 ctx.fillStyle = node.__isCluster
                   ? themeColors.fg
-                  : CATEGORY_COLORS[categoryIndex(node.name || '?')];
+                  : catColors2[categoryIndex(node.name || '?')];
                 ctx.fill();
 
                 // Ring feedback: bright ring on hover/selection, subtle ring on neighbor
@@ -1120,7 +1122,7 @@ export default function GraphPage() {
             />
             )}
 
-            {/* Legend — fixed category colors, consistently applied */}
+            {/* Legend — theme-aware category colors */}
             <div
               style={{
                 position: 'absolute',
@@ -1130,13 +1132,13 @@ export default function GraphPage() {
                 gap: '6px',
                 alignItems: 'center',
                 padding: '6px 10px',
-                background: 'rgba(0,0,0,0.5)',
+                background: themeColors.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.75)',
                 border: `1px solid ${themeColors.fg}`,
                 opacity: 0.85,
               }}
             >
               <span style={{ fontFamily: FONT_MONO, fontSize: '10px', color: themeColors.fg, marginRight: '4px' }}>GROUPS</span>
-              {CATEGORY_COLORS.map((c) => (
+              {(themeColors.isDark ? CATEGORY_COLORS_DARK : CATEGORY_COLORS_LIGHT).map((c) => (
                 <span key={c} style={{ width: '10px', height: '10px', borderRadius: '50%', background: c, display: 'inline-block' }} />
               ))}
             </div>
@@ -1152,7 +1154,7 @@ export default function GraphPage() {
                   gap: '4px',
                   alignItems: 'center',
                   padding: '6px 10px',
-                  background: 'rgba(0,0,0,0.6)',
+                  background: themeColors.isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.8)',
                   border: `1px solid ${themeColors.fg}`,
                 }}
               >
@@ -1176,14 +1178,13 @@ export default function GraphPage() {
                 ))}
               </div>
             )}
-          </div>
 
-          {/* Side panel */}
-          <div className="side-panel">
-            {selectedNode ? (
-              <>
-                <div className="side-panel__header">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            {/* Floating side panel overlay — only visible when a node is selected */}
+            <div className={`side-panel ${selectedNode ? 'side-panel--visible' : ''}`}>
+              {selectedNode && (
+                <>
+                  <div className="side-panel__header">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
                       {editMode ? (
                         <input
@@ -1357,19 +1358,9 @@ export default function GraphPage() {
                     </div>
                   )}
                 </div>
-              </>
-            ) : (
-              <div className="side-panel__body" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                <p className="text-mono" style={{ opacity: 0.5, textAlign: 'center' }}>
-                  CLICK A NODE TO EXPLORE ITS DEFINITION, SOURCE NOTES, AND LINKED CARDS.
-                </p>
-                {!focusNodeId && (
-                  <p className="text-mono" style={{ opacity: 0.4, textAlign: 'center', marginTop: '8px', fontSize: '11px' }}>
-                    HOVER TO ISOLATE A NEIGHBORHOOD · ZOOM TO REVEAL LABELS · SEARCH TO HIGHLIGHT
-                  </p>
-                )}
-              </div>
-            )}
+                </> 
+              )}
+            </div>
           </div>
         </div>
       )}

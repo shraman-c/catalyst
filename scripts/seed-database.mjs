@@ -2,7 +2,7 @@ import { createClient } from '@libsql/client';
 import path from 'path';
 import { randomUUID } from 'crypto';
 
-const DB_URL = `file:${path.resolve(process.cwd(), 'synthesizer.db')}`;
+const DB_URL = `file:${path.resolve(process.cwd(), 'catalyst.db')}`;
 const db = createClient({ url: DB_URL });
 
 function id() { return randomUUID(); }
@@ -11,7 +11,7 @@ const now = () => new Date().toISOString();
 // Simple password hash matching the app's hashPassword function
 function hashPassword(password) {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'synthesizer-salt');
+  const data = encoder.encode(password + 'catalyst-salt');
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data[i];

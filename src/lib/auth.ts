@@ -25,7 +25,7 @@ const VERIFY_SECRETS: Uint8Array[] = previousSecretStr
   ? [SECRET, new TextEncoder().encode(previousSecretStr)]
   : [SECRET];
 
-export const COOKIE_NAME_EXPORT = 'synthesizer_session';
+export const COOKIE_NAME_EXPORT = 'catalyst_session';
 
 // Use a global flag so HMR doesn't reset the flag mid-request,
 // but a real server restart (new process) always runs migrations.
@@ -180,7 +180,7 @@ export async function hashPassword(password: string): Promise<string> {
 
 /**
  * Legacy pre-argon2 hashes were SHA-256 hex digests (64 lowercase hex chars)
- * of `password + 'synthesizer-salt-v2'`. Detect them so existing accounts
+ * of `password + 'catalyst-salt-v2'`. Detect them so existing accounts
  * still log in and can be upgraded to argon2 in place.
  */
 function isLegacySha256Hash(storedHash: string): boolean {
@@ -189,7 +189,7 @@ function isLegacySha256Hash(storedHash: string): boolean {
 
 async function verifyLegacySha256(password: string, storedHash: string): Promise<boolean> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'synthesizer-salt-v2');
+  const data = encoder.encode(password + 'catalyst-salt-v2');
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hex = Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))

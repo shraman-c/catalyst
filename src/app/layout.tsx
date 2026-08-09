@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/ThemeProvider";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
   title: "Catalyst — Turn Notes Into Knowledge",
@@ -31,7 +32,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             try {
-              var theme = localStorage.getItem('synthesizer-theme');
+              var theme = localStorage.getItem('catalyst-theme');
               if (theme === 'dark' || theme === 'light') {
                 document.documentElement.classList.add(theme);
                 document.documentElement.setAttribute('data-theme', theme);
@@ -45,7 +46,12 @@ export default function RootLayout({
         ` }} />
       </head>
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          {children}
+          <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}>
+            <ThemeToggle showLabel={false} />
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );
