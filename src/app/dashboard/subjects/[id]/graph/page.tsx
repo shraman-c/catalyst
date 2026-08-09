@@ -877,7 +877,8 @@ export default function GraphPage() {
             ref={containerRef}
             className="graph-container"
             style={{
-              height: '600px',
+              height: 'calc(100vh - 200px)',
+              minHeight: '500px',
               position: 'relative',
               backgroundColor: themeColors.bg,
             }}
@@ -1168,14 +1169,13 @@ export default function GraphPage() {
                 ))}
               </div>
             )}
-          </div>
 
-          {/* Side panel */}
-          <div className="side-panel">
-            {selectedNode ? (
-              <>
-                <div className="side-panel__header">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            {/* Floating side panel overlay — only visible when a node is selected */}
+            <div className={`side-panel ${selectedNode ? 'side-panel--visible' : ''}`}>
+              {selectedNode && (
+                <>
+                  <div className="side-panel__header">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
                       {editMode ? (
                         <input
@@ -1349,19 +1349,9 @@ export default function GraphPage() {
                     </div>
                   )}
                 </div>
-              </>
-            ) : (
-              <div className="side-panel__body" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                <p className="text-mono" style={{ opacity: 0.5, textAlign: 'center' }}>
-                  CLICK A NODE TO EXPLORE ITS DEFINITION, SOURCE NOTES, AND LINKED CARDS.
-                </p>
-                {!focusNodeId && (
-                  <p className="text-mono" style={{ opacity: 0.4, textAlign: 'center', marginTop: '8px', fontSize: '11px' }}>
-                    HOVER TO ISOLATE A NEIGHBORHOOD · ZOOM TO REVEAL LABELS · SEARCH TO HIGHLIGHT
-                  </p>
-                )}
-              </div>
-            )}
+                </> 
+              )}
+            </div>
           </div>
         </div>
       )}

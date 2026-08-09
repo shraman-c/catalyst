@@ -1299,39 +1299,59 @@ body {
 }
 
 /* ============================================================
-   36. Graph layout (canvas + side panel) — collapses to a
-   single stacked column on tablet/mobile
+   36. Graph layout — full-bleed canvas with floating overlay panel.
+   The graph takes the full width; the side panel floats on top
+   when a node is selected.
    ============================================================ */
 .graph-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  position: relative;
   border: var(--border-thick) solid var(--ink);
 }
 
 .graph-layout .graph-container {
-  border-right: var(--border-thick) solid var(--ink);
+  width: 100%;
 }
 
 .graph-layout .side-panel {
-  max-height: 600px;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 360px;
+  max-height: calc(100% - 24px);
   overflow-y: auto;
+  background-color: var(--base);
+  border: var(--border-thick) solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  z-index: 10;
+  opacity: 0;
+  transform: translateX(16px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.graph-layout .side-panel.side-panel--visible {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 @media (max-width: 768px) {
-  .graph-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .graph-layout .graph-container {
-    border-right: none;
-    border-bottom: var(--border-thick) solid var(--ink);
-  }
-
   .graph-layout .side-panel {
-    max-height: 40vh;
-    /* The canvas's own bottom border separates the two sections;
-       dropping the panel's top border avoids a chunky 8px seam. */
-    border-top: none;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 50vh;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: 0 -4px 0 var(--ink);
+    transform: translateY(16px);
+  }
+
+  .graph-layout .side-panel.side-panel--visible {
+    transform: translateY(0);
   }
 }
 
