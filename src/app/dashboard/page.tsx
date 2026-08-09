@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [newSubjectDesc, setNewSubjectDesc] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSubjects();
@@ -81,6 +83,26 @@ export default function DashboardPage() {
       setCreateError('Network error. Please check your connection.');
     }
     setCreating(false);
+  }
+
+  async function deleteSubject(subjectId: string, subjectName: string) {
+    if (!confirm(`Are you sure you want to delete "${subjectName}"? This will permanently delete all associated notes, concepts, and flashcards.`)) {
+      return;
+    }
+    setDeletingId(subjectId);
+    try {
+      const res = await fetch(`/api/subjects/${subjectId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSubjects((prev) => prev.filter((s) => s.id !== subjectId));
+      } else {
+        alert('Failed to delete subject.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Network error while deleting subject.');
+    }
+    setDeletingId(null);
+    setOpenMenuId(null);
   }
 
   const totalDue = subjects.reduce((sum, s) => sum + s.stats.cards_due_today, 0);
@@ -199,14 +221,66 @@ export default function DashboardPage() {
                 style={{ textDecoration: 'none', color: 'inherit' }}
                 id={`subject-tile-${subject.id}`}
               >
-                <div className="bento-tile bento-tile-hoverable shadow-hard subject-card">
+                <div className="bento-tile bento-tile-hoverable shadow-hard subject-card" style={{ position: 'relative' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                    <h2 className="text-display-md subject-card__name">
+                    <h2 className="text-display-md subject-card__name" style={{ paddingRight: '30px' }}>
                       {subject.name.toUpperCase()}
                     </h2>
-                    {subject.stats.cards_due_today > 0 && (
-                      <div className="mono-tag mono-tag-signal" style={{ flexShrink: 0, marginLeft: '8px' }}>{subject.stats.cards_due_today} DUE</div>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {subject.stats.cards_due_today > 0 && (
+                        <div className="mono-tag mono-tag-signal" style={{ flexShrink: 0 }}>{subject.stats.cards_due_today} DUE</div>
+                      )}
+                      
+                      {/* Hamburger Menu */}
+                      <div style={{ position: 'relative' }}>
+                        <button 
+                          className="btn btn-ghost" 
+                          style={{ padding: '4px', height: '28px', width: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink)' }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setOpenMenuId(openMenuId === subject.id ? null : subject.id);
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="1"></circle>
+                            <circle cx="12" cy="5" r="1"></circle>
+                            <circle cx="12" cy="19" r="1"></circle>
+                          </svg>
+                        </button>
+                        
+                        {openMenuId === subject.id && (
+                          <div 
+                            className="bento-tile shadow-hard" 
+                            style={{ 
+                              position: 'absolute', 
+                              top: '100%', 
+                              right: 0, 
+                              marginTop: '4px',
+                              padding: '4px', 
+                              zIndex: 10,
+                              minWidth: '140px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px'
+                            }}
+                          >
+                            <button
+                              className="btn btn-ghost"
+                              style={{ width: '100%', justifyContent: 'flex-start', padding: '6px 12px', fontSize: '13px', color: 'var(--signal)' }}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                deleteSubject(subject.id, subject.name);
+                              }}
+                              disabled={deletingId === subject.id}
+                            >
+                              {deletingId === subject.id ? 'DELETING...' : 'DELETE SUBJECT'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {subject.description && (

@@ -96,3 +96,28 @@ export async function PATCH(
     return NextResponse.json({ error: 'Failed to update subject' }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  try {
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const subject = await queryOne<Subject>(
+      'SELECT id FROM subjects WHERE id = ? AND user_id = ?',
+      [id, session.id]
+    );
+    if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 });
+
+    const ok = await execute('DELETE FROM subjects WHERE id = ?', [id]);
+    if (!ok) return NextResponse.json({ error: 'Failed to delete subject' }, { status: 500 });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/subjects/[id] error:', err);
+    return NextResponse.json({ error: 'Failed to delete subject' }, { status: 500 });
+  }
+}
