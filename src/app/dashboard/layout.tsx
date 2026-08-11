@@ -1,7 +1,13 @@
 import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { Metadata } from 'next';
 import LogoutButtonClient from './LogoutButtonClient';
+
+export const metadata: Metadata = {
+  title: 'Dashboard — Catalyst',
+  description: 'Manage your knowledge base, notes, and spaced repetition flashcards in your Catalyst dashboard.',
+};
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();

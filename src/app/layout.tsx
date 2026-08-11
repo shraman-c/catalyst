@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/lib/ThemeProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://catalyst-jet.vercel.app"),
   title: "Catalyst — Turn Notes Into Knowledge",
   description:
     "Catalyst automatically turns your raw local notes into an interconnected knowledge graph and active-recall flashcards. Write in any editor — we handle the structure.",
@@ -11,6 +12,8 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Catalyst — Turn Notes Into Knowledge",
     description: "Automatic knowledge graphs and flashcards from your raw notes.",
+    url: "https://catalyst-jet.vercel.app",
+    siteName: "Catalyst",
     type: "website",
   },
 };
