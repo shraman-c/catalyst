@@ -1,0 +1,17 @@
+# Catalyst - Turn Notes Into Knowledge
+
+Catalyst is an open-source web application designed to automatically turn raw, local markdown notes into an interconnected knowledge graph and active-recall flashcards. 
+It supports writing in any editor and syncs your local folder to a powerful spaced repetition system. 
+
+## Core Features
+- Local-first note syncing (syncs raw markdown files).
+- Auto-generation of flashcards and knowledge graphs from notes.
+- Spaced repetition study mode.
+- PWA support with offline caching capabilities.
+
+## Architecture
+- Frontend: Next.js (App Router), React, CSS Modules / Global CSS
+- Database/Auth: Supabase
+- Algorithms: SuperMemo 2 (SM-2) for spaced repetition
+
+For more information, please refer to the live site at https://catalyst-jet.vercel.app/
