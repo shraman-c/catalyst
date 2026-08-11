@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/ThemeProvider";
+import SessionSync from "@/components/SessionSync";
 
 export const metadata: Metadata = {
   title: "Catalyst — Turn Notes Into Knowledge",
@@ -55,6 +56,8 @@ export default function RootLayout({
       <body>
         {/* Theme switching lives in Settings → Appearance (LIGHT / DARK / SYSTEM). */}
         <ThemeProvider>{children}</ThemeProvider>
+        {/* Keeps every open tab in sync when the session changes in one of them. */}
+        <SessionSync />
       </body>
     </html>
   );

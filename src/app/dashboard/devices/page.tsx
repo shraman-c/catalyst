@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { notifyAuthChanged } from '@/components/SessionSync';
 
 interface UnifiedDevice {
   id: string;
@@ -107,6 +108,8 @@ export default function DevicesPage() {
         const data = await res.json();
         if (data.revoked_current) {
           // Revoked our own session — the server cleared the cookie.
+          // Other tabs share this cookie, so tell them to sync too.
+          notifyAuthChanged('logout');
           router.push('/');
           router.refresh();
           return;

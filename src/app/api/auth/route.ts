@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ---- Cookie options: persistent (30 days) when "Remember Me" is on, session-only otherwise. ----
+  // ---- Cookie options: always persistent. 30 days with "Remember Me", 1 day
+  // without. A bare session cookie dies with the browser (and on some mobile
+  // browsers when tabs close), silently dropping the login — so Max-Age is
+  // always set. The server-side `sessions` row is still the source of truth
+  // (revocation/expiry enforced by verifySession), so a shorter cookie TTL
+  // only shortens how long the browser keeps it. ----
   const cookieOptions: Record<string, any> = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -63,9 +68,10 @@ export async function POST(request: NextRequest) {
     path: '/',
   };
   if (action === 'login' || action === 'signup') {
-    if (parsed.data.remember !== false) {
-      cookieOptions.maxAge = 60 * 60 * 24 * 30; // 30 days
-    }
+    cookieOptions.maxAge =
+      parsed.data.remember === false
+        ? 60 * 60 * 24 // 1 day — "don't remember me" still survives tab/browser closes
+        : 60 * 60 * 24 * 30; // 30 days (matches SESSION_DAYS in lib/auth.ts)
   }
 
   if (action === 'logout_all') {

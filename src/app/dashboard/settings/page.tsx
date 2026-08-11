@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTheme } from '@/lib/ThemeProvider';
 import { PWAInstallSection } from '@/components/PWAInstall';
+import { notifyAuthChanged } from '@/components/SessionSync';
 
 interface Preferences {
   card_density: number;
@@ -101,6 +102,8 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout_all' }),
       });
+      // Tell any other open tabs to sync so they show the signed-out state.
+      notifyAuthChanged('logout');
       router.push('/');
       router.refresh();
     } catch (err) {

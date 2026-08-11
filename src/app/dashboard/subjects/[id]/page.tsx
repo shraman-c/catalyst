@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { loadDraft, saveDraft, clearDraft, type NoteDraft } from '@/lib/noteDraft';
 
 interface SubjectData {
   subject: { id: string; name: string; description: string | null };
@@ -43,6 +44,18 @@ export default function SubjectPage() {
   const [uploadTab, setUploadTab] = useState<'paste' | 'file'>('paste');
   const [syncStatus, setSyncStatus] = useState<{ watcher_connected: boolean; last_sync_at: string | null; folder_path: string | null } | null>(null);
 
+  // ---- Draft autosave: unsaved paste-editor text survives logout-sync
+  // navigation, a closed tab, or an accidental reload. ----
+  const [draftRestored, setDraftRestored] = useState<NoteDraft | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Always mirrors the current editor state so the leave-flush below can
+  // persist the latest values without re-registering listeners per keystroke.
+  const latestRef = useRef({ content: '', filename: 'lecture-notes.md' });
+  // Set once the user actually edits (vs. the initial empty state), so an
+  // intentional clear-to-empty is treated as "nothing to restore".
+  const editedRef = useRef(false);
+  latestRef.current = { content: pasteContent, filename: pasteFilename };
+
   const fetchData = useCallback(async () => {
     try {
       const [subjectRes, syncRes] = await Promise.all([
@@ -64,6 +77,84 @@ export default function SubjectPage() {
   }, [subjectId, router]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Restore a saved draft for this subject on load — it survives logout-sync
+  // navigation, a closed tab, or an accidental reload before uploading.
+  useEffect(() => {
+    const draft = loadDraft(subjectId);
+    if (draft && draft.content.trim()) {
+      setPasteContent(draft.content);
+      setPasteFilename(draft.filename || 'lecture-notes.md');
+      setDraftRestored(draft);
+    } else {
+      // No draft for this subject — reset any state left over from a
+      // previously-viewed subject (App Router reuses the component instance
+      // when params.id changes). Mid-typing navigation flushes first via the
+      // unmount handler, so this never discards unsaved text.
+      setPasteContent('');
+      setPasteFilename('lecture-notes.md');
+      setDraftRestored(null);
+      editedRef.current = false;
+    }
+  }, [subjectId]);
+
+  // Flush pending edits when the tab closes/refreshes or this page unmounts
+  // (e.g. the cross-tab session sync navigates away mid-typing).
+  useEffect(() => {
+    const flush = () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const { content, filename } = latestRef.current;
+      if (content.trim()) {
+        saveDraft(subjectId, content, filename);
+      } else if (editedRef.current) {
+        clearDraft(subjectId); // user deleted everything — nothing to restore
+      }
+    };
+    window.addEventListener('beforeunload', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [subjectId]);
+
+  function handlePasteContentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    editedRef.current = true;
+    const content = e.target.value;
+    setPasteContent(content);
+    scheduleDraftSave(content, latestRef.current.filename);
+  }
+
+  function handlePasteFilenameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const filename = e.target.value;
+    setPasteFilename(filename);
+    scheduleDraftSave(latestRef.current.content, filename);
+  }
+
+  /** Debounced persistence of the draft (fires 400ms after typing stops). */
+  function scheduleDraftSave(content: string, filename: string) {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      if (content.trim()) {
+        saveDraft(subjectId, content, filename);
+      } else if (editedRef.current) {
+        clearDraft(subjectId);
+      }
+    }, 400);
+  }
+
+  /** Explicitly discard the restored draft (banner button). */
+  function handleDiscardDraft() {
+    clearDraft(subjectId);
+    setDraftRestored(null);
+    setPasteContent('');
+    editedRef.current = false;
+  }
 
   async function handlePasteUpload(e: React.FormEvent) {
     e.preventDefault();
@@ -89,6 +180,10 @@ export default function SubjectPage() {
       } else {
         setUploadResult(result.pipeline);
         setPasteContent('');
+        // The draft is now saved server-side — nothing left to restore.
+        clearDraft(subjectId);
+        setDraftRestored(null);
+        editedRef.current = false;
         fetchData(); // Refresh stats
       }
     } catch {
@@ -275,23 +370,51 @@ export default function SubjectPage() {
           </div>
 
           {uploadTab === 'paste' ? (
-            <form onSubmit={handlePasteUpload} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <input
-                className="input-ink"
-                type="text"
-                value={pasteFilename}
-                onChange={(e) => setPasteFilename(e.target.value)}
-                placeholder="Note filename (e.g. week3-lecture.md)"
-                id="paste-filename"
-              />
-              <textarea
-                className="textarea-ink"
-                value={pasteContent}
-                onChange={(e) => setPasteContent(e.target.value)}
-                placeholder="Paste your lecture notes here (Markdown or plain text)..."
-                style={{ minHeight: '240px' }}
-                id="paste-content"
-              />
+            <>
+              {draftRestored && (
+                <div
+                  className="alert-block"
+                  style={{
+                    marginBottom: '12px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span>
+                    DRAFT RESTORED — UNSAVED TEXT FROM{' '}
+                    {new Date(draftRestored.savedAt).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={handleDiscardDraft}
+                    style={{ fontSize: '11px', padding: '4px 10px' }}
+                    id="discard-draft"
+                  >
+                    DISCARD
+                  </button>
+                </div>
+              )}
+              <form onSubmit={handlePasteUpload} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <input
+                  className="input-ink"
+                  type="text"
+                  value={pasteFilename}
+                  onChange={handlePasteFilenameChange}
+                  placeholder="Note filename (e.g. week3-lecture.md)"
+                  id="paste-filename"
+                />
+                <textarea
+                  className="textarea-ink"
+                  value={pasteContent}
+                  onChange={handlePasteContentChange}
+                  placeholder="Paste your lecture notes here (Markdown or plain text)..."
+                  style={{ minHeight: '240px' }}
+                  id="paste-content"
+                />
               <button
                 className="btn btn-primary"
                 type="submit"
@@ -301,7 +424,8 @@ export default function SubjectPage() {
               >
                 {uploading ? 'PROCESSING...' : 'SYNTHESIZE NOTES →'}
               </button>
-            </form>
+              </form>
+            </>
           ) : (
             <div
               className={`upload-zone ${dragOver ? 'dragging' : ''}`}
