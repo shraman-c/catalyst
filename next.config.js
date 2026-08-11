@@ -82,17 +82,23 @@ const nextConfig = {
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
+  // Offline support (Part 2): serve the self-contained fallback page ONLY when
+  // a navigation actually fails (offline + nothing cached). Uses next-pwa's
+  // `fallbacks` option, which attaches a handlerDidError fallback to the
+  // caching strategies instead of a blanket navigation route. The key must be
+  // `document` — the fallback worker dispatches on request.destination, and
+  // page navigations arrive as destination "document" (v10 has no `navigate`
+  // key; `fallbacks: { navigate: ... }` is silently ignored).
+  //
+  // NOTE: workbox's `navigateFallback` was deliberately removed — it generates
+  // a NavigationRoute(createHandlerBoundToURL('/offline.html')) that shadows
+  // EVERY navigation with offline.html even while online, because App Router
+  // HTML routes are never precached (only _next/static hashes are). Verified
+  // live on the deployed site: every reload/deep-link showed the offline page.
+  fallbacks: { document: '/offline.html' },
   workboxOptions: {
-    // Offline support (Part 2): precache a self-contained fallback page and
-    // serve it for any navigation that can't be satisfied — either because
-    // the network is down or the page was never cached. Visited pages still
-    // work from the SW's NetworkFirst page cache; this catches everything
-    // else so the user never sees a bare browser error page.
+    // Precache the self-contained fallback page so it's available offline.
     additionalManifestEntries: [{ url: '/offline.html', revision: offlineRevision }],
-    navigateFallback: '/offline.html',
-    // Don't fall back for API calls or static assets — they either cache
-    // separately (apis/static routes) or should just fail cleanly.
-    navigateFallbackDenylist: [/^\/api\//, /\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff2?|ttf|eot|json|xml|html?|txt)$/],
   },
 });
 
