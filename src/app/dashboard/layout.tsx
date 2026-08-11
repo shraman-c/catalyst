@@ -11,6 +11,11 @@ export const metadata: Metadata = {
   description: 'Manage your knowledge base, notes, and spaced repetition flashcards in your Catalyst dashboard.',
 };
 
+export const metadata: Metadata = {
+  title: 'Dashboard — Catalyst',
+  description: 'Manage your knowledge base, notes, and spaced repetition flashcards in your Catalyst dashboard.',
+};
+
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session) {
