@@ -323,6 +323,32 @@ function LandingHero({ onGetStarted, onLogin }: { onGetStarted: () => void; onLo
           </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer style={{
+        borderTop: 'var(--border-thick) solid var(--ink)',
+        padding: '24px clamp(16px, 5vw, 40px)',
+        backgroundColor: 'var(--base)',
+        display: 'flex',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '16px'
+      }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="text-mono" style={{ fontWeight: 'bold' }}>POWERED BY</span>
+          <span className="mono-tag">Next.js</span>
+          <span className="mono-tag">PostgreSQL</span>
+          <span className="mono-tag">Pinecone</span>
+          <span className="mono-tag">Dexie</span>
+          <span className="mono-tag">LLMs</span>
+        </div>
+        <div>
+          <a href="/dev" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
+            MEET THE DEVELOPERS
+          </a>
+        </div>
+      </footer>
     </main>
   );
 }
