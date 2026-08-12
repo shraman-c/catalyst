@@ -210,7 +210,7 @@ export async function getSessionJti(): Promise<string | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME_EXPORT)?.value;
   if (!token) return null;
-  for (const secret of VERIFY_SECRETS) {
+  for (const secret of getVerifySecrets()) {
     try {
       const { payload } = await jwtVerify(token, secret);
       return (payload.jti as string) ?? null;
