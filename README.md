@@ -10,6 +10,12 @@ Catalyst
 Local-to-Cloud Notes App — turns raw notes into knowledge graphs and flashcards automatically.
 </h2>
 
+## Testing ID and Password
+
+|ID|Password|
+|---|---|
+|demo@catalyst.com|password12345|
+
 ## Quick start
 
 ```bash
