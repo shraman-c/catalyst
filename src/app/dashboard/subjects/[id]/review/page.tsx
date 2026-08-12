@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSyncManager, queueSyncAction } from '@/lib/sync/SyncManager';
+import { markReviewCompleted } from '@/lib/pwa';
 
 interface Flashcard {
   id: string;
@@ -79,6 +80,8 @@ export default function ReviewPage() {
 
       if (currentIndex + 1 >= cards.length) {
         setSessionComplete(true);
+        // First completed session unlocks the PWA install card (Part 1).
+        markReviewCompleted();
       } else {
         setCurrentIndex((prev) => prev + 1);
       }
@@ -216,7 +219,10 @@ export default function ReviewPage() {
                 await queueSyncAction('delete', subjectId, { action: 'delete', card_id: currentCard.id });
                 setCards((prev) => prev.filter((c) => c.id !== currentCard.id));
                 setRevealed(false);
-                if (currentIndex >= cards.length - 1) setSessionComplete(true);
+                if (currentIndex >= cards.length - 1) {
+                  setSessionComplete(true);
+                  markReviewCompleted();
+                }
               }}
               id="delete-card-btn"
             >

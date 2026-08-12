@@ -87,13 +87,3 @@ export async function resetFailedAttempts(userId: string): Promise<void> {
   await execute('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1', [userId]);
 }
 
-/** Returns seconds remaining in the lockout (0 = not locked). */
-export async function lockoutRemainingSeconds(userId: string): Promise<number> {
-  const row = await queryOne<{ locked_until: string | null }>(
-    'SELECT locked_until FROM users WHERE id = $1',
-    [userId]
-  );
-  if (!row?.locked_until) return 0;
-  const ms = new Date(row.locked_until).getTime() - Date.now();
-  return ms > 0 ? Math.ceil(ms / 1000) : 0;
-}

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSession, createUser, findUserByEmail, verifyPassword, migrateLegacyPasswordHash, createSession, revokeSession, revokeAllSessions, COOKIE_NAME_EXPORT, SENTINEL_PASSWORD_HASH } from '@/lib/auth';
-import { checkRateLimit, clientIp, registerFailedAttempt, resetFailedAttempts, lockoutRemainingSeconds } from '@/lib/rate-limit';
+import { checkRateLimit, clientIp, registerFailedAttempt, resetFailedAttempts } from '@/lib/rate-limit';
 import { parseBody, authBodySchema } from '@/lib/validation';
+import { parseDeviceLabel } from '@/lib/devices';
 
 // Rate limits (audit 1.3): sliding window per IP and per email.
 const LOGIN_IP_LIMIT = 10; // 10 login attempts/min per IP
@@ -11,6 +12,9 @@ const SIGNUP_IP_LIMIT = 5; // 5 signups/min per IP
 
 export async function POST(request: NextRequest) {
   const ip = clientIp(request);
+  // Part 3: record which browser/device this session belongs to, so it shows
+  // up in the unified Devices list ("Chrome on Android", etc.).
+  const deviceLabel = parseDeviceLabel(request.headers.get('user-agent'));
 
   // ---- Rate limiting BEFORE touching the DB (audit 1.3) ----
   const actionGuess = await parseAction(request);
@@ -51,7 +55,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ---- Cookie options: persistent (30 days) when "Remember Me" is on, session-only otherwise. ----
+  // ---- Cookie options: always persistent. 30 days with "Remember Me", 1 day
+  // without. A bare session cookie dies with the browser (and on some mobile
+  // browsers when tabs close), silently dropping the login — so Max-Age is
+  // always set. The server-side `sessions` row is still the source of truth
+  // (revocation/expiry enforced by verifySession), so a shorter cookie TTL
+  // only shortens how long the browser keeps it. ----
   const cookieOptions: Record<string, any> = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -59,9 +68,10 @@ export async function POST(request: NextRequest) {
     path: '/',
   };
   if (action === 'login' || action === 'signup') {
-    if (parsed.data.remember !== false) {
-      cookieOptions.maxAge = 60 * 60 * 24 * 30; // 30 days
-    }
+    cookieOptions.maxAge =
+      parsed.data.remember === false
+        ? 60 * 60 * 24 // 1 day — "don't remember me" still survives tab/browser closes
+        : 60 * 60 * 24 * 30; // 30 days (matches SESSION_DAYS in lib/auth.ts)
   }
 
   if (action === 'logout_all') {
@@ -100,7 +110,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const token = await createSession(user);
+    const token = await createSession(user, { device_label: deviceLabel, ip_address: ip });
     const response = NextResponse.json({ success: true, user });
     response.cookies.set(COOKIE_NAME_EXPORT, token, cookieOptions);
     return response;
@@ -110,9 +120,13 @@ export async function POST(request: NextRequest) {
     const { email, password } = parsed.data;
     const dbUser = await findUserByEmail(email);
 
-    // Account lockout (audit 1.8): check lock BEFORE verifying.
+    // Account lockout (audit 1.8): check lock BEFORE verifying. locked_until
+    // is already on the row fetched above — computing it here avoids an extra
+    // round-trip on every login.
     if (dbUser) {
-      const remaining = await lockoutRemainingSeconds(dbUser.id);
+      const remaining = dbUser.locked_until
+        ? Math.max(0, Math.ceil((new Date(dbUser.locked_until).getTime() - Date.now()) / 1000))
+        : 0;
       if (remaining > 0) {
         return NextResponse.json(
           { error: 'Account temporarily locked due to too many failed attempts. Try again later.' },
@@ -138,13 +152,16 @@ export async function POST(request: NextRequest) {
       await registerFailedAttempt(dbUser.id);
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
-    // Success — clear the failure counter.
-    await resetFailedAttempts(dbUser.id);
+    // Success — clear the failure counter, but only when there were failures
+    // (the row from findUserByEmail already carries the current count).
+    if (Number(dbUser.failed_attempts) > 0) {
+      await resetFailedAttempts(dbUser.id);
+    }
     // Legacy SHA-256 accounts upgrade to argon2 on their next successful login.
     await migrateLegacyPasswordHash(dbUser.id, password, dbUser.password_hash);
 
     const user = { id: dbUser.id as string, email: dbUser.email as string, name: dbUser.name as string | null };
-    const token = await createSession(user);
+    const token = await createSession(user, { device_label: deviceLabel, ip_address: ip });
     const response = NextResponse.json({ success: true, user });
     response.cookies.set(COOKIE_NAME_EXPORT, token, cookieOptions);
     return response;

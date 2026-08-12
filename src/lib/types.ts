@@ -129,3 +129,8 @@ export interface SessionUser {
   email: string;
   name: string | null;
 }
+
+// Part 3 — device/session management. `browser_session` rows live in the
+// `sessions` table (JWT jti = id); `sync_watcher` rows live in the `devices`
+// table. The unified Devices UI renders both.
+export type DeviceType = 'browser_session' | 'sync_watcher';

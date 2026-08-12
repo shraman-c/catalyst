@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/ThemeProvider";
-import ThemeToggle from "@/components/ThemeToggle";
+import SessionSync from "@/components/SessionSync";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://catalyst-jet.vercel.app"),
@@ -32,6 +32,14 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
           rel="stylesheet"
         />
+        {/* PWA (design.md §1 tokens): manifest + installability metas */}
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <meta name="theme-color" content="#F2F0E9" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Catalyst" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             try {
@@ -49,12 +57,10 @@ export default function RootLayout({
         ` }} />
       </head>
       <body>
-        <ThemeProvider>
-          {children}
-          <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999 }}>
-            <ThemeToggle showLabel={false} />
-          </div>
-        </ThemeProvider>
+        {/* Theme switching lives in Settings → Appearance (LIGHT / DARK / SYSTEM). */}
+        <ThemeProvider>{children}</ThemeProvider>
+        {/* Keeps every open tab in sync when the session changes in one of them. */}
+        <SessionSync />
       </body>
     </html>
   );

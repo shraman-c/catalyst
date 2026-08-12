@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTheme } from '@/lib/ThemeProvider';
+import { PWAInstallSection } from '@/components/PWAInstall';
+import { notifyAuthChanged } from '@/components/SessionSync';
 
 interface Preferences {
   card_density: number;
@@ -100,6 +102,8 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout_all' }),
       });
+      // Tell any other open tabs to sync so they show the signed-out state.
+      notifyAuthChanged('logout');
       router.push('/');
       router.refresh();
     } catch (err) {
@@ -239,16 +243,19 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Devices section */}
+          {/* Devices & sessions section (Part 3) */}
           <div className="bento-tile">
-            <h2 className="text-display-md" style={{ marginBottom: '6px' }}>WATCHER DEVICES</h2>
+            <h2 className="text-display-md" style={{ marginBottom: '6px' }}>DEVICES &amp; SESSIONS</h2>
             <p className="text-body-sm" style={{ opacity: 0.6, marginBottom: '16px' }}>
-              Connect desktop watcher instances to automatically sync local note folders.
+              Every browser logged into your account and every paired watcher instance. Revoke access from anywhere.
             </p>
             <Link href="/dashboard/devices" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
               MANAGE DEVICES →
             </Link>
           </div>
+
+          {/* PWA install (Part 1) */}
+          <PWAInstallSection />
 
           {/* Data Export (Stage 5) */}
           <div className="bento-tile">

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { PWAInstallCard } from '@/components/PWAInstall';
 
 interface SubjectStats {
   note_count: number;
@@ -126,6 +127,9 @@ export default function DashboardPage() {
           + NEW SUBJECT
         </button>
       </div>
+
+      {/* PWA install card — one-time, after first review session (Part 1) */}
+      <PWAInstallCard />
 
       {/* New subject form — modal overlay */}
       {showNewSubject && (

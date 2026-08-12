@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Metadata } from 'next';
 import LogoutButtonClient from './LogoutButtonClient';
+import ConnectionStatus from '@/components/ConnectionStatus';
+import MobileNav from '@/components/MobileNav';
 
 export const metadata: Metadata = {
   title: 'Dashboard — Catalyst',
@@ -41,33 +43,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
       </nav>
 
-      {/* Mobile navigation (shown only on small screens) */}
-      <div className="hide-on-desktop mobile-nav" style={{ 
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: 'var(--base)',
-        borderTop: 'var(--border-thick) solid var(--ink)',
-        zIndex: 100,
-        padding: '8px 16px',
-        justifyContent: 'space-around'
-      }}>
-        <Link href="/dashboard" className="nav-link" style={{ fontSize: '11px', padding: '8px' }}>
-          ◈
-        </Link>
-        <Link href="/dashboard/devices" className="nav-link" style={{ fontSize: '11px', padding: '8px' }}>
-          ⊞
-        </Link>
-        <Link href="/dashboard/settings" className="nav-link" style={{ fontSize: '11px', padding: '8px' }}>
-          ⚙
-        </Link>
-      </div>
+      {/* Mobile navigation (shown only on small screens) — big icon chips */}
+      <MobileNav />
 
       {/* Page content */}
-      <div style={{ flex: 1, paddingBottom: '60px' }}>
+      <div style={{ flex: 1, paddingBottom: '84px' }}>
         {children}
       </div>
+
+      {/* Offline / back-online indicator (Part 2) */}
+      <ConnectionStatus />
     </div>
   );
 }

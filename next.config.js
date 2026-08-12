@@ -1,3 +1,15 @@
+const fs = require('fs');
+const crypto = require('crypto');
+
+// Content-hash the offline fallback page so a changed offline.html automatically
+// gets a NEW precache revision. A fixed revision string would serve the stale
+// copy to existing installs forever — this way the service worker refresh picks
+// it up on the next build.
+const offlineHtmlPath = 'public/offline.html';
+const offlineRevision = fs.existsSync(offlineHtmlPath)
+  ? crypto.createHash('sha256').update(fs.readFileSync(offlineHtmlPath)).digest('hex').slice(0, 8)
+  : 'offline';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // @node-rs/argon2 ships a native .node binary. Keep it external on the
@@ -70,6 +82,24 @@ const nextConfig = {
 const withPWA = require('@ducanh2912/next-pwa').default({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
+  // Offline support (Part 2): serve the self-contained fallback page ONLY when
+  // a navigation actually fails (offline + nothing cached). Uses next-pwa's
+  // `fallbacks` option, which attaches a handlerDidError fallback to the
+  // caching strategies instead of a blanket navigation route. The key must be
+  // `document` — the fallback worker dispatches on request.destination, and
+  // page navigations arrive as destination "document" (v10 has no `navigate`
+  // key; `fallbacks: { navigate: ... }` is silently ignored).
+  //
+  // NOTE: workbox's `navigateFallback` was deliberately removed — it generates
+  // a NavigationRoute(createHandlerBoundToURL('/offline.html')) that shadows
+  // EVERY navigation with offline.html even while online, because App Router
+  // HTML routes are never precached (only _next/static hashes are). Verified
+  // live on the deployed site: every reload/deep-link showed the offline page.
+  fallbacks: { document: '/offline.html' },
+  workboxOptions: {
+    // Precache the self-contained fallback page so it's available offline.
+    additionalManifestEntries: [{ url: '/offline.html', revision: offlineRevision }],
+  },
 });
 
 module.exports = withPWA(nextConfig);

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#F2F0E9" />
+  <title>Offline — Catalyst</title>
+  <!--
+    Self-contained offline fallback (Part 2): no external fonts, no network
+    requests of any kind — the service worker serves this file from cache.
+    Colors follow design.md §1 (base/ink/signal) with the signature hard
+    offset shadows (§3.1).
+  -->
+  <!--
+    NOTE (CSP follow-up): the TRY AGAIN button uses an inline onclick handler,
+    which is only permitted by the app's current 'unsafe-inline' script-src.
+    When the nonce-based CSP from progress.md (fix 2.3) lands, move this to a
+    bundled script file or an addEventListener call.
+  -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --base: #F2F0E9;
+      --ink: #111111;
+      --surface: #FFFFFF;
+      --signal: #F4B400;
+      --alert: #D64545;
+      --mono-panel: #E7E3D8;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Space Grotesk', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background-color: var(--base);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* Navigation bar strip */
+    .nav-strip {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 60px;
+      border-bottom: 4px solid var(--ink);
+      background-color: var(--base);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+    }
+    .logo {
+      font-family: 'Arial Black', 'Archivo Black', Arial, sans-serif;
+      font-size: 20px;
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+    }
+    .tag {
+      margin-left: 12px;
+      font-family: 'Courier New', 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border: 2px solid var(--ink);
+      background-color: var(--alert);
+      color: var(--base);
+    }
+    /* Card */
+    .card {
+      max-width: 560px;
+      width: 100%;
+      border: 4px solid var(--ink);
+      background-color: var(--surface);
+      box-shadow: 6px 6px 0 0 var(--ink);
+      padding: clamp(24px, 6vw, 48px);
+      text-align: center;
+    }
+    .display {
+      font-family: 'Arial Black', 'Archivo Black', Arial, sans-serif;
+      font-size: clamp(24px, 6vw, 40px);
+      line-height: 1.05;
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+      margin-bottom: 16px;
+    }
+    .signal-square {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 3px solid var(--ink);
+      background-color: var(--signal);
+      margin-bottom: 16px;
+    }
+    .body-text {
+      font-size: 15px;
+      line-height: 1.6;
+      opacity: 0.85;
+      margin-bottom: 24px;
+    }
+    .mono-note {
+      display: inline-block;
+      font-family: 'Courier New', 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border: 2px solid var(--ink);
+      background-color: var(--mono-panel);
+      margin-bottom: 28px;
+    }
+    .btn-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 10px 20px;
+      border: 3px solid var(--ink);
+      border-radius: 2px;
+      cursor: pointer;
+      user-select: none;
+      background-color: var(--signal);
+      color: var(--ink);
+      box-shadow: 4px 4px 0 0 var(--ink);
+    }
+    .btn:active { box-shadow: none; transform: translate(4px, 4px); }
+    .btn--ghost { background-color: transparent; box-shadow: none; }
+    .btn--ghost:hover { background-color: var(--mono-panel); }
+    @media (prefers-reduced-motion: reduce) {
+      .btn { transition: none; }
+      .btn:active { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav-strip">
+    <span class="logo">CATALYST</span>
+    <span class="tag">OFFLINE</span>
+  </nav>
+
+  <main class="card" role="main">
+    <span class="signal-square" aria-hidden="true"></span>
+    <h1 class="display">YOU&rsquo;RE<br />OFFLINE.</h1>
+    <p class="body-text">
+      Your last-visited pages still work. Your notes, graph, and cards are safe — anything you
+      reviewed or changed will sync automatically once you reconnect.
+    </p>
+    <div class="mono-note">RE-CONNECT TO SYNC CHANGES</div>
+    <div class="btn-row">
+      <button class="btn" type="button" onclick="location.reload()">TRY AGAIN</button>
+      <a class="btn btn--ghost" href="/">BACK TO APP</a>
+    </div>
+  </main>
+</body>
+</html>
