@@ -34,6 +34,7 @@
     "@types/node": "^20.17.57",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
+    "esbuild": "^0.25.0",
     "playwright": "^1.62.1",
     "typescript": "^5.8.3",
     "wrangler": "latest"
