@@ -1,6 +1,14 @@
-# Catalyst
+<p align="center">
+  <img src="./src/app/icon.png" alt="App Logo" width="400">
+</p>
 
-Local-to-Cloud Note Catalyst — turns raw notes into knowledge graphs and flashcards automatically.
+<h1 align="center">
+Catalyst
+</h1>
+
+<h2 align="center">
+Local-to-Cloud Notes App — turns raw notes into knowledge graphs and flashcards automatically.
+</h2>
 
 ## Quick start
 
