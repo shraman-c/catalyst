@@ -7,23 +7,30 @@ import { queryOne, execute, executeStrict, generateId, initializeSchema, ensureD
 import type { SessionUser } from './types';
 
 const secretStr = process.env.NEXTAUTH_SECRET;
-if (!secretStr) {
-  throw new Error(
-    'NEXTAUTH_SECRET environment variable is required. ' +
-    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))" ' +
-    'and add it to .env.local'
-  );
+
+function getSecret(): Uint8Array {
+  if (!secretStr) {
+    throw new Error(
+      'NEXTAUTH_SECRET environment variable is required. ' +
+      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))" ' +
+      'and add it to .env.local'
+    );
+  }
+  return new TextEncoder().encode(secretStr);
 }
-const SECRET = new TextEncoder().encode(secretStr);
 
 // Dual-key verification (audit 1.7 / fix 3.2): during a secret rotation window,
 // set NEXTAUTH_SECRET_PREVIOUS to the old value so existing sessions still
 // verify while new sessions are signed with the current secret. Remove the
 // previous value once all old JWTs have expired.
-const previousSecretStr = process.env.NEXTAUTH_SECRET_PREVIOUS;
-const VERIFY_SECRETS: Uint8Array[] = previousSecretStr
-  ? [SECRET, new TextEncoder().encode(previousSecretStr)]
-  : [SECRET];
+function getVerifySecrets(): Uint8Array[] {
+  const previousSecretStr = process.env.NEXTAUTH_SECRET_PREVIOUS;
+  const secrets = [getSecret()];
+  if (previousSecretStr) {
+    secrets.push(new TextEncoder().encode(previousSecretStr));
+  }
+  return secrets;
+}
 
 export const COOKIE_NAME_EXPORT = 'catalyst_session';
 
@@ -80,7 +87,7 @@ export async function createSession(user: SessionUser, meta?: SessionMeta): Prom
     .setJti(jti)
     .setIssuedAt()
     .setExpirationTime(`${SESSION_DAYS}d`)
-    .sign(SECRET);
+    .sign(getSecret());
 
   // Best-effort row insert. If the write fails the token still verifies but
   // has no backing row, so verifySession() will reject it — fail closed.
@@ -127,7 +134,7 @@ export async function verifySession(token: string): Promise<SessionUser | null> 
   await ensureSchema();
   let payload: any;
   try {
-    for (const secret of VERIFY_SECRETS) {
+    for (const secret of getVerifySecrets()) {
       try {
         const result = await jwtVerify(token, secret);
         payload = result.payload;
@@ -163,7 +170,7 @@ export async function verifySession(token: string): Promise<SessionUser | null> 
 export async function revokeSession(token: string): Promise<void> {
   try {
     let jti: string | undefined;
-    for (const secret of VERIFY_SECRETS) {
+    for (const secret of getVerifySecrets()) {
       try {
         const { payload } = await jwtVerify(token, secret);
         jti = payload.jti as string | undefined;
