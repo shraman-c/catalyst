@@ -51,9 +51,9 @@ export default function DevPage() {
               </div>
               
               <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
-                <a href="https://github.com/shraman-c" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>GitHub</a>
+                <a href="https://github.com/shraman-c/" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>GitHub</a>
                 <a href="https://www.linkedin.com/in/shramanchaudhuri/" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>LinkedIn</a>
-                <a href="https://shramanc.pages.dev" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>Portfolio</a>
+                <a href="https://shramanc.pages.dev/" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>Portfolio</a>
               </div>
             </div>
 
@@ -84,9 +84,9 @@ export default function DevPage() {
               </div>
               
               <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
-                <a href="#" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>GitHub</a>
-                <a href="#" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>LinkedIn</a>
-                <a href="#" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>Portfolio</a>
+                <a href="https://github.com/itsMeSpandan" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>GitHub</a>
+                <a href="https://www.linkedin.com/in/spandan-dhar-1ab2891bb/" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>LinkedIn</a>
+                <a href="https://nadnaps.pages.dev/" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>Portfolio</a>
               </div>
             </div>
           </div>
