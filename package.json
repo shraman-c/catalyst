@@ -8,14 +8,16 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "pages:build": "npx @cloudflare/next-on-pages"
+    "pages:build": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
-    "@node-rs/argon2": "^2.0.2",
     "@pinecone-database/pinecone": "^8.2.0",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
+    "hash-wasm": "^4.12.0",
     "isomorphic-dompurify": "^3.22.0",
     "jose": "^5.9.6",
     "marked": "^12.0.0",
@@ -27,13 +29,14 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.13.16",
+    "@opennextjs/cloudflare": "latest",
     "@playwright/test": "^1.62.1",
     "@types/node": "^20.17.57",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "playwright": "^1.62.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "wrangler": "latest"
   },
   "overrides": {
     "postcss": "^8.5.23",

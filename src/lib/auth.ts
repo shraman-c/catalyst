@@ -1,8 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
-// Argon2id (prebuilt native binary, @node-rs/argon2) — kept external to
-// webpack via serverExternalPackages in next.config.js.
-import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
+// Argon2id via hash-wasm (pure WASM — runs on Cloudflare Workers / Edge).
+import { argon2id, argon2Verify } from 'hash-wasm';
 import { queryOne, execute, executeStrict, generateId, initializeSchema, ensureDeviceMigrations } from './db';
 import type { SessionUser } from './types';
 
@@ -250,7 +249,10 @@ async function ensureUserRow(user: SessionUser): Promise<void> {
 }
 
 // Argon2id with OWASP-recommended parameters (memory 19 MiB, 2 iterations).
-const ARGON2_OPTIONS = { memoryCost: 19456, timeCost: 2, parallelism: 1 };
+const ARGON2_MEMORY = 19456;  // KiB
+const ARGON2_ITERATIONS = 2;
+const ARGON2_PARALLELISM = 1;
+const ARGON2_HASH_LENGTH = 32;
 
 /**
  * Hash a password with Argon2id. Output is a PHC-format string
@@ -258,7 +260,17 @@ const ARGON2_OPTIONS = { memoryCost: 19456, timeCost: 2, parallelism: 1 };
  * two hashes of the same password are never equal.
  */
 export async function hashPassword(password: string): Promise<string> {
-  return argon2Hash(password, ARGON2_OPTIONS);
+  const salt = new Uint8Array(16);
+  crypto.getRandomValues(salt);
+  return argon2id({
+    password,
+    salt,
+    iterations: ARGON2_ITERATIONS,
+    memorySize: ARGON2_MEMORY,
+    parallelism: ARGON2_PARALLELISM,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'encoded',
+  });
 }
 
 /**
@@ -289,7 +301,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     return verifyLegacySha256(password, storedHash);
   }
   try {
-    return await argon2Verify(storedHash, password);
+    return await argon2Verify({ hash: storedHash, password });
   } catch {
     // Malformed/unknown hash format (e.g. the sentinel) — never authenticates.
     return false;
