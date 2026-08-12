@@ -4,13 +4,15 @@ import { queryOne, queryAll, execute, generateId } from '@/lib/db';
 import { parseBody, deviceActionSchema } from '@/lib/validation';
 import { SignJWT } from 'jose';
 
-const jwtSecretStr = process.env.JWT_SECRET;
-if (!jwtSecretStr) {
-  throw new Error(
-    'JWT_SECRET environment variable is required for device pairing. Add it to .env.local'
-  );
+function getJwtSecret(): Uint8Array {
+  const jwtSecretStr = process.env.JWT_SECRET;
+  if (!jwtSecretStr) {
+    throw new Error(
+      'JWT_SECRET environment variable is required for device pairing. Add it to .env.local'
+    );
+  }
+  return new TextEncoder().encode(jwtSecretStr);
 }
-const JWT_SECRET = new TextEncoder().encode(jwtSecretStr);
 
 interface Device {
   id: string;
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest) {
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
-      .sign(JWT_SECRET);
+      .sign(getJwtSecret());
 
     // Redeem: clear the pairing code, set the token and metadata
     await execute(
